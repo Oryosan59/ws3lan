@@ -21,7 +21,7 @@ static std::thread loop_thread2;
 struct PipelineConfig {
     std::string device;                 // カメラデバイスのパス (例: "/dev/video0")
     int port;                           // UDP送信先のポート番号
-    std::string host = "192.168.6.10";  // UDP送信先のホストIPアドレス (デフォルト値)
+    std::string host = "192.168.4.10";  // UDP送信先のホストIPアドレス (デフォルト値)
     int width = 1280;                   // キャプチャする映像の幅 (デフォルト値)
     int height = 720;                   // キャプチャする映像の高さ (デフォルト値)
     int framerate_num = 30;             // フレームレートの分子 (デフォルト値)
