@@ -105,6 +105,9 @@ int main()
                     thruster_set_all_pwm(PWM_MIN);
                     latest_gamepad_data = GamepadData{}; // 古いコマンドをクリア
                     currently_in_failsafe = true;
+                    // フェイルセーフ起動（接続タイムアウト後）のためプログラムを終了
+                    std::cout << "フェイルセーフ起動のためプログラムを終了します。" << std::endl;
+                    running = false;
                 }
             }
             // recv_len < 0 かつ EAGAIN/EWOULDBLOCK 以外の場合は受信エラー
@@ -115,7 +118,7 @@ int main()
         }
 
         // 3. 制御ロジック (フェイルセーフ中でない場合のみ実行)
-        if (!currently_in_failsafe)
+        if (!currently_in_failsafe && running) // プログラムが実行中の場合のみ制御ロジックを実行
         {
             current_gyro_data = read_gyro();
             thruster_update(latest_gamepad_data, current_gyro_data);
