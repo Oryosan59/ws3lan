@@ -4,28 +4,32 @@
 #include "thruster_control.h" // スラスター制御関連
 #include "sensor_data.h"      // センサーデータ読み取り・フォーマット関連
 #include "gstPipeline.h"      // GStreamerパイプライン起動用
+#include "config.h"           // 設定ファイル読み込みとグローバル設定オブジェクト
 
 #include <iostream> // 標準入出力 (std::cout, std::cerr)
 #include <unistd.h> // POSIX API (usleep)
-#include <string.h> // 文字列操作 (strlen)
-#include <sys/time.h> // gettimeofday を使用するため
+#include <string.h> // strlen
+#include <sys/time.h> // gettimeofday
 
-// --- 定数 ---
-const double CONNECTION_TIMEOUT_SECONDS = 0.2; // 接続タイムアウトまでの秒数 (0.2秒)
 
 
 // --- メイン関数 ---
 int main()
 {
     printf("Navigator C++ Control Application\n");
+    // --- 設定ファイルの読み込み ---
+    // config.ini が見つからない場合、またはパースエラーが発生した場合は、
+    // AppConfig 構造体のデフォルト値が使用されます。
+    loadConfig("config.ini");
 
     // --- 初期化 ---
     printf("Initiating navigator module.\n");
     init(); // Navigator ハードウェアライブラリの初期化 (bindings.h 経由)
 
+    // ネットワークポートは設定ファイルから取得
     // ネットワークコンテキストの初期化
-    NetworkContext net_ctx;
-    if (!network_init(&net_ctx, DEFAULT_RECV_PORT, DEFAULT_SEND_PORT))
+    NetworkContext net_ctx; // ネットワークコンテキスト
+    if (!network_init(&net_ctx, g_config.network_recv_port, g_config.network_send_port))
     {
         std::cerr << "ネットワーク初期化失敗。終了します。" << std::endl;
         return -1;
@@ -39,6 +43,7 @@ int main()
         return -1;
     }
 
+    // GStreamerパイプラインの起動 (設定は config.h/cpp から取得)
     // GStreamerパイプラインの起動
     if (!start_gstreamer_pipelines())
     {
@@ -50,16 +55,15 @@ int main()
     GamepadData latest_gamepad_data;                 // 最後に受信した有効なゲームパッドデータを保持
     char recv_buffer[NET_BUFFER_SIZE];               // UDP受信バッファ
     AxisData current_gyro_data = {0.0f, 0.0f, 0.0f}; // 最新のジャイロデータを保持
-    char sensor_buffer[SENSOR_BUFFER_SIZE];          // センサーデータ送信用文字列バッファ
-    unsigned int loop_counter = 0;                   // センサーデータ送信間隔制御用カウンター
-    const unsigned int SENSOR_SEND_INTERVAL = 10;    // センサーデータを送信するループ間隔 (100Hzループで10回 -> 10Hz)
+    char sensor_buffer[SENSOR_BUFFER_SIZE];          // センサーデータ送信用文字列バッファ (sensor_data.h で定義)
+    unsigned int loop_counter = 0;                   // センサーデータ送信間隔制御用カウンター (configから取得)
     bool running = true;                             // メインループの実行フラグ
 
     bool currently_in_failsafe = true; // 初期状態はフェイルセーフ (最初の接続を待つ)
 
-    std::cout << "メインループ開始。Startボタンで終了。" << std::endl;
-    std::cout << "クライアントからの最初のデータ受信を待機しています... (スラスターはPWM: " << PWM_MIN << ")" << std::endl;
-    thruster_set_all_pwm(PWM_MIN); // プログラム開始時にスラスターを安全な状態に設定
+    std::cout << "メインループ開始。" << std::endl;
+    std::cout << "クライアントからの最初のデータ受信を待機しています... (スラスターはPWM: " << g_config.pwm_min << ")" << std::endl;
+    thruster_set_all_pwm(g_config.pwm_min); // プログラム開始時にスラスターを安全な状態に設定
 
     // running フラグが true の間、ループを継続
     while (running)
@@ -73,7 +77,7 @@ int main()
         if (net_ctx.client_addr_known)
         {
             time_since_last_packet = (current_time_tv.tv_sec - net_ctx.last_successful_recv_time.tv_sec) +
-                                     (current_time_tv.tv_usec - net_ctx.last_successful_recv_time.tv_usec) / 1000000.0;
+                                     (current_time_tv.tv_usec - net_ctx.last_successful_recv_time.tv_usec) / 1000000.0; // 秒単位
         }
 
         // 2. ゲームパッドデータ受信 (network_receive は net_ctx.last_successful_recv_time を更新)
@@ -97,12 +101,12 @@ int main()
         else // 今回のループではパケット受信なし
         {
             // 接続が一度確立された後でタイムアウトした場合
-            if (net_ctx.client_addr_known && time_since_last_packet > CONNECTION_TIMEOUT_SECONDS)
+            if (net_ctx.client_addr_known && time_since_last_packet > g_config.connection_timeout_seconds)
             {
                 if (!currently_in_failsafe)
                 {
-                    std::cout << "接続がタイムアウトしました。フェイルセーフモード (スラスターPWM: " << PWM_MIN << ") に移行します。" << std::endl;
-                    thruster_set_all_pwm(PWM_MIN);
+                    std::cout << "接続がタイムアウトしました。フェイルセーフモード (スラスターPWM: " << g_config.pwm_min << ") に移行します。" << std::endl;
+                    thruster_set_all_pwm(g_config.pwm_min);
                     latest_gamepad_data = GamepadData{}; // 古いコマンドをクリア
                     currently_in_failsafe = true;
                     // フェイルセーフ起動（接続タイムアウト後）のためプログラムを終了
@@ -124,7 +128,7 @@ int main()
             thruster_update(latest_gamepad_data, current_gyro_data);
 
             // センサーデータ処理 (読み取り、フォーマット、送信) - 一定間隔で実行
-            if (loop_counter >= SENSOR_SEND_INTERVAL)
+            if (loop_counter >= g_config.sensor_send_interval)
             {
                 std::cout << "[SENSOR LOG] " << sensor_buffer << std::endl; // ログは送信時のみ表示
 
@@ -158,7 +162,7 @@ int main()
         // }
 
         // 5. ループ待機 (CPU負荷軽減とループ頻度調整)
-        usleep(10000); // 10000マイクロ秒 = 10ミリ秒待機 (約100Hzのループ周波数)
+        usleep(g_config.loop_delay_us); // 設定ファイルから取得した値で待機
     }
 
     // --- クリーンアップ ---

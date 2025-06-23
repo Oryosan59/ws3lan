@@ -2,6 +2,7 @@
 #include <iostream>
 #include <string>   // For std::string and std::to_string
 #include <thread>   // For std::thread
+#include "config.h" // g_config を使用するため
 
 // --- グローバル変数 ---
 // GStreamerパイプラインのインスタンス (カメラ1用)
@@ -17,70 +18,95 @@ static std::thread loop_thread1;
 // main_loop2を実行するためのスレッド
 static std::thread loop_thread2; 
 
-// パイプライン設定を保持するための構造体
-struct PipelineConfig {
-    std::string device;                 // カメラデバイスのパス (例: "/dev/video0")
-    int port;                           // UDP送信先のポート番号
-    std::string host = "192.168.4.10";  // UDP送信先のホストIPアドレス (デフォルト値)
-    int width = 1280;                   // キャプチャする映像の幅 (デフォルト値)
-    int height = 720;                   // キャプチャする映像の高さ (デフォルト値)
-    int framerate_num = 30;             // フレームレートの分子 (デフォルト値)
-    int framerate_den = 1;              // フレームレートの分母 (デフォルト値)
-    bool is_h264_native_source = false; // ソースカメラがH.264ネイティブ出力かどうかのフラグ (trueならエンコード不要)
-    int rtp_payload_type = 96;          // RTPペイロードタイプ (デフォルト値)
-    int rtp_config_interval = 1;        // rtph264payのconfig-interval および h264parseのconfig-interval (デフォルト値)
-
-    // JPEGソースなど、H.264へのエンコードが必要な場合のx264encパラメータ
-    int x264_bitrate = 5000;                     // エンコードビットレート (kbps, デフォルト値)
-    std::string x264_tune = "zerolatency";       // x264encのチューニングオプション (デフォルト値)
-    std::string x264_speed_preset = "superfast"; // x264encの速度プリセット (デフォルト値)
-};
 
 // GMainLoopを指定されたスレッドで実行するための関数
 static void run_main_loop(GMainLoop* loop) {
     g_main_loop_run(loop);
 }
 
-// 指定された設定に基づいてGStreamerパイプラインを作成し、メインループを開始する関数
-static bool create_pipeline(const PipelineConfig& config, GstElement** pipeline_ptr, GMainLoop** loop_ptr) {
-    std::string pipeline_str = "v4l2src device=" + config.device + " ! ";
+static bool create_pipeline(const AppConfig& app_config, int camera_idx, GstElement** pipeline_ptr, GMainLoop** loop_ptr) {
+    std::string device;
+    int port;
+    std::string host;
+    int width;
+    int height;
+    int framerate_num;
+    int framerate_den;
+    bool is_h264_native_source;
+    int rtp_payload_type;
+    int rtp_config_interval;
+    int x264_bitrate = 0; // Only for camera 2
+    std::string x264_tune; // Only for camera 2
+    std::string x264_speed_preset; // Only for camera 2
 
-    if (config.is_h264_native_source) {
+    if (camera_idx == 1) {
+        device = app_config.gst1_device;
+        port = app_config.gst1_port;
+        host = app_config.gst1_host;
+        width = app_config.gst1_width;
+        height = app_config.gst1_height;
+        framerate_num = app_config.gst1_framerate_num;
+        framerate_den = app_config.gst1_framerate_den;
+        is_h264_native_source = app_config.gst1_is_h264_native_source;
+        rtp_payload_type = app_config.gst1_rtp_payload_type;
+        rtp_config_interval = app_config.gst1_rtp_config_interval;
+    } else if (camera_idx == 2) {
+        device = app_config.gst2_device;
+        port = app_config.gst2_port;
+        host = app_config.gst2_host;
+        width = app_config.gst2_width;
+        height = app_config.gst2_height;
+        framerate_num = app_config.gst2_framerate_num;
+        framerate_den = app_config.gst2_framerate_den;
+        is_h264_native_source = app_config.gst2_is_h264_native_source;
+        rtp_payload_type = app_config.gst2_rtp_payload_type;
+        rtp_config_interval = app_config.gst2_rtp_config_interval;
+        x264_bitrate = app_config.gst2_x264_bitrate;
+        x264_tune = app_config.gst2_x264_tune;
+        x264_speed_preset = app_config.gst2_x264_speed_preset;
+    } else {
+        std::cerr << "エラー: 不明なカメラインデックス " << camera_idx << std::endl;
+        return false;
+    }
+
+    std::string pipeline_str = "v4l2src device=" + device + " ! ";
+
+    if (is_h264_native_source) {
         // カメラがH.264ネイティブ出力の場合のパイプライン文字列を構築
         // v4l2src -> video/x-h264 caps -> h264parse
-        pipeline_str += "video/x-h264,width=" + std::to_string(config.width) +
-                        ",height=" + std::to_string(config.height) +
-                        ",framerate=" + std::to_string(config.framerate_num) + "/" + std::to_string(config.framerate_den) + " ! "
-                        "h264parse config-interval=" + std::to_string(config.rtp_config_interval);
+        pipeline_str += "video/x-h264,width=" + std::to_string(width) +
+                        ",height=" + std::to_string(height) +
+                        ",framerate=" + std::to_string(framerate_num) + "/" + std::to_string(framerate_den) + " ! "
+                        "h264parse config-interval=" + std::to_string(rtp_config_interval);
     } else {
         // カメラがJPEG出力など、H.264へのエンコードが必要な場合のパイプライン文字列を構築
         // v4l2src -> image/jpeg caps -> jpegdec -> videoconvert -> x264enc
-        pipeline_str += "image/jpeg,width=" + std::to_string(config.width) +
-                        ",height=" + std::to_string(config.height) +
-                        ",framerate=" + std::to_string(config.framerate_num) + "/" + std::to_string(config.framerate_den) + " ! "
+        pipeline_str += "image/jpeg,width=" + std::to_string(width) +
+                        ",height=" + std::to_string(height) +
+                        ",framerate=" + std::to_string(framerate_num) + "/" + std::to_string(framerate_den) + " ! "
                         "jpegdec ! videoconvert ! "
-                        "x264enc tune=" + config.x264_tune +
-                        " bitrate=" + std::to_string(config.x264_bitrate) +
-                        " speed-preset=" + config.x264_speed_preset;
+                        "x264enc tune=" + x264_tune +
+                        " bitrate=" + std::to_string(x264_bitrate) +
+                        " speed-preset=" + x264_speed_preset;
     }
 
     // 共通のパイプライン末尾部分 (RTPパッキングとUDP送信) を追加
     // ... ! rtph264pay ! udpsink
-    pipeline_str += " ! rtph264pay config-interval=" + std::to_string(config.rtp_config_interval) +
-                    " pt=" + std::to_string(config.rtp_payload_type) + " ! "
-                    "udpsink host=" + config.host + " port=" + std::to_string(config.port);
+    pipeline_str += " ! rtph264pay config-interval=" + std::to_string(rtp_config_interval) +
+                    " pt=" + std::to_string(rtp_payload_type) + " ! "
+                    "udpsink host=" + host + " port=" + std::to_string(port);
 
     GError* error = nullptr;
     // 構築したパイプライン文字列からGStreamerパイプラインをパース(作成)
     *pipeline_ptr = gst_parse_launch(pipeline_str.c_str(), &error);
     if (!*pipeline_ptr) {
         // パイプライン作成失敗時のエラー処理
-        std::cerr << "GStreamerパイプライン作成失敗 (" << config.device << "): " << error->message << std::endl;
+        std::cerr << "GStreamerパイプライン作成失敗 (カメラ" << camera_idx << " - " << device << "): " << error->message << std::endl;
         g_error_free(error);
         return false;
     }
     // 作成されたパイプライン文字列をデバッグ出力
-    std::cout << "GStreamer pipeline for " << config.device << " (" << config.port << "): " << pipeline_str << std::endl;
+    std::cout << "GStreamer pipeline for camera " << camera_idx << " (" << device << "): " << pipeline_str << std::endl;
 
     // パイプライン用のGMainLoopを作成
     *loop_ptr = g_main_loop_new(nullptr, FALSE);
@@ -95,25 +121,12 @@ bool start_gstreamer_pipelines() {
     // GStreamerライブラリの初期化 (アプリケーション開始時に一度だけ呼び出す)
     gst_init(nullptr, nullptr);
 
-    // カメラ1 (/dev/video2) の設定: H.264ネイティブソースとして設定
-    PipelineConfig config1;
-    config1.device = "/dev/video2";
-    config1.port = 5000;
-    config1.is_h264_native_source = true; // H.264ネイティブソースであることを指定
-    // その他のパラメータ (解像度、フレームレートなど) はPipelineConfig構造体のデフォルト値を使用
 
     // カメラ1のパイプラインを作成・起動
-    if (!create_pipeline(config1, &pipeline1, &main_loop1)) return false;
-
-    // カメラ2 (/dev/video4) の設定: JPEGソースとして設定 (H.264へのエンコードが必要)
-    PipelineConfig config2;
-    config2.device = "/dev/video4";
-    config2.port = 5001;
-    config2.is_h264_native_source = false; // H.264ネイティブではない (エンコードが必要) ことを指定
-    // x264encのパラメータはPipelineConfig構造体のデフォルト値を使用
+    if (!create_pipeline(g_config, 1, &pipeline1, &main_loop1)) return false;
 
     // カメラ2のパイプラインを作成・起動
-    if (!create_pipeline(config2, &pipeline2, &main_loop2)) return false;
+    if (!create_pipeline(g_config, 2, &pipeline2, &main_loop2)) return false;
 
     // 各パイプラインのGMainLoopを別々のスレッドで実行開始
     loop_thread1 = std::thread(run_main_loop, main_loop1);

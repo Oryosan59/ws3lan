@@ -5,9 +5,6 @@
 #include <sys/time.h>   // struct timeval を使用するため
 #include <stdbool.h>    // bool 型を使用するため
 #include <stddef.h>     // size_t 型を使用するため
-
-#define DEFAULT_RECV_PORT 12345 // デフォルトの受信UDPポート番号
-#define DEFAULT_SEND_PORT 12346 // デフォルトの送信UDPポート番号
 #define NET_BUFFER_SIZE 1024    // ネットワーク送受信バッファのサイズ (バイト単位)
 
 // ネットワーク通信の状態を保持する構造体

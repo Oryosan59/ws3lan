@@ -1,6 +1,6 @@
 # コンパイラとフラグ
 CXX = g++
-CXXFLAGS = -std=c++11 -Wall -Wextra -pedantic # その他必要なコンパイラフラグを追加
+CXXFLAGS = -std=c++11 -Wall -Wextra -pedantic -g # デバッグ情報を含める
 
 # --- ディレクトリ定義 ---
 SRC_DIR = src
@@ -17,6 +17,11 @@ NAVIGATOR_LIB_PATH = /home/pi/navigator-lib/target/debug
 GSTREAMER_CFLAGS = $(shell pkg-config --cflags gstreamer-1.0)
 GSTREAMER_LIBS = $(shell pkg-config --libs gstreamer-1.0)
 CXXFLAGS += $(GSTREAMER_CFLAGS) # GStreamer のコンパイルフラグを追加
+
+# pkg-configが成功したかチェック
+ifeq ($(GSTREAMER_CFLAGS),)
+    $(error "pkg-config could not find gstreamer-1.0. Make sure it is installed and PKG_CONFIG_PATH is set.")
+endif
 
 # --- インクルードディレクトリ ---
 # プロジェクトのインクルードディレクトリと外部ライブラリのインクルードディレクトリを追加
