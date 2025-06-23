@@ -29,7 +29,7 @@ int main()
     // ネットワークポートは設定ファイルから取得
     // ネットワークコンテキストの初期化
     NetworkContext net_ctx; // ネットワークコンテキスト
-    if (!network_init(&net_ctx, g_config.network_recv_port, g_config.network_send_port))
+    if (!network_init(&net_ctx))
     {
         std::cerr << "ネットワーク初期化失敗。終了します。" << std::endl;
         return -1;

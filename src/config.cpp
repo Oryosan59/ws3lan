@@ -14,7 +14,7 @@ AppConfig::AppConfig() :
     led_pwm_channel(9), led_pwm_on(1900), led_pwm_off(1100),
     smoothing_factor_horizontal(0.15f), smoothing_factor_vertical(0.2f),
     kp_roll(0.2f), kp_yaw(0.15f), yaw_threshold_dps(2.0f), yaw_gain(50.0f),
-    network_recv_port(5000), network_send_port(5001), connection_timeout_seconds(0.2),
+    network_recv_port(12345), network_send_port(12346), connection_timeout_seconds(0.2),
     sensor_send_interval(10), loop_delay_us(10000),
     gst1_device("/dev/video2"), gst1_port(5000), gst1_host("192.168.4.10"),
     gst1_width(1280), gst1_height(720), gst1_framerate_num(30), gst1_framerate_den(1),

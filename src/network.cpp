@@ -6,14 +6,18 @@
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <errno.h>
-
+#include "config.h" // g_config を使用するため
 #include <sys/time.h> // gettimeofday のため
 
 // ネットワーク送受信コンテキストを初期化する関数
-bool network_init(NetworkContext *ctx, int recv_port, int send_port)
+bool network_init(NetworkContext *ctx)
 {
     if (!ctx)
         return false; // コンテキストポインタが無効なら失敗
+
+    // 設定オブジェクトからポート番号を取得
+    int recv_port = g_config.network_recv_port;
+    int send_port = g_config.network_send_port;
 
     // コンテキスト初期化
     memset(ctx, 0, sizeof(NetworkContext));

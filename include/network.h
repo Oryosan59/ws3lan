@@ -5,6 +5,9 @@
 #include <sys/time.h>   // struct timeval を使用するため
 #include <stdbool.h>    // bool 型を使用するため
 #include <stddef.h>     // size_t 型を使用するため
+
+#define DEFAULT_RECV_PORT 12345 // デフォルトの受信UDPポート番号
+#define DEFAULT_SEND_PORT 12346 // デフォルトの送信UDPポート番号
 #define NET_BUFFER_SIZE 1024    // ネットワーク送受信バッファのサイズ (バイト単位)
 
 // ネットワーク通信の状態を保持する構造体
@@ -21,7 +24,7 @@ typedef struct
 } NetworkContext;
 
 // 関数のプロトタイプ宣言
-bool network_init(NetworkContext *ctx, int recv_port, int send_port);           // ネットワークコンテキストを初期化し、ソケットを作成・バインドする
+bool network_init(NetworkContext *ctx);                                         // ネットワークコンテキストを初期化し、ソケットを作成・バインドする
 void network_close(NetworkContext *ctx);                                        // ネットワーク関連のリソース（ソケット）を解放する
 ssize_t network_receive(NetworkContext *ctx, char *buffer, size_t buffer_size); // UDPデータを受信する (ノンブロッキング)
 bool network_send(NetworkContext *ctx, const char *data, size_t data_len);      // UDPデータを送信する
