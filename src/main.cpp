@@ -10,6 +10,7 @@
 #include <unistd.h> // POSIX API (usleep)
 #include <string.h> // strlen
 #include <sys/time.h> // gettimeofday
+#include "web_api.h"          // Web APIサーバー関連
 
 
 
@@ -21,6 +22,9 @@ int main()
     // config.ini が見つからない場合、またはパースエラーが発生した場合は、
     // AppConfig 構造体のデフォルト値が使用されます。
     loadConfig("config.ini");
+
+        // --- Web APIサーバーの起動 ---
+    start_web_api_server();
 
     // --- 初期化 ---
     printf("Initiating navigator module.\n");
@@ -170,6 +174,7 @@ int main()
     thruster_disable();      // スラスターへのPWM出力を停止
     network_close(&net_ctx); // ネットワークソケットをクローズ
     stop_gstreamer_pipelines(); // GStreamerパイプラインを停止
+    stop_web_api_server();   // Web APIサーバーを停止
     std::cout << "プログラム終了。" << std::endl;
     return 0;
 }

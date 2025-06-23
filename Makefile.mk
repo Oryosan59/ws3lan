@@ -6,6 +6,7 @@ CXXFLAGS = -std=c++11 -Wall -Wextra -pedantic -g # デバッグ情報を含め�
 SRC_DIR = src
 OBJ_DIR = obj
 BIN_DIR = bin
+EXTERNAL_DIR = external # 外部ライブラリ用ディレクトリ
 INC_DIR = include # プロジェクト自身のインクルードディレクトリ
 
 # --- 外部ライブラリパス ---
@@ -25,14 +26,17 @@ endif
 
 # --- インクルードディレクトリ ---
 # プロジェクトのインクルードディレクトリと外部ライブラリのインクルードディレクトリを追加
-INCLUDES = -I$(INC_DIR) -I$(NAVIGATOR_LIB_PATH)
+INCLUDES = -I$(INC_DIR) -I$(NAVIGATOR_LIB_PATH) \
+           -I$(EXTERNAL_DIR)/crow/include \
+           -I$(EXTERNAL_DIR)/json/include
 
 # --- ライブラリディレクトリ ---
 LDFLAGS = -L$(NAVIGATOR_LIB_PATH) \
           -Wl,-rpath=$(NAVIGATOR_LIB_PATH) # 実行時リンクのためのrpathを設定
 
 # --- リンクするライブラリ ---
-# コマンドで指定された特定のライブラリ名を使用
+# CrowはBoostに依存することがありますが、最近はスタンドアロンASIOがデフォルトです。
+# もし `boost_system` が見つからないというリンクエラーが出たら、-lboost_system を追加してください。
 LIBS = -lbluerobotics_navigator -lpthread -lm
 LIBS += $(GSTREAMER_LIBS) # GStreamer のリンクライブラリを追加
 
