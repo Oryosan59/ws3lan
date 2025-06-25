@@ -21,7 +21,7 @@ extern std::mutex g_config_mutex; // 設定オブジェクトを保護するミ�
 static std::atomic<bool> running(true);
 
 // --- メイン関数 ---
-int main()
+int main(int argc, char *argv[])
 {
     printf("Navigator C++ Control Application\n");
     // --- 設定ファイルの読み込み ---
@@ -76,7 +76,7 @@ int main()
     thruster_set_all_pwm(g_config.pwm_min); // プログラム開始時にスラスターを安全な状態に設定
 
     // Ctrl+C (SIGINT) シグナルハンドラを設定
-    std::signal(SIGINT, [](int) {
+    std::signal(SIGINT, [&](int) {
         std::cout << "\nCtrl+C が検出されました。プログラムを終了します。" << std::endl;
         running = false;
     });

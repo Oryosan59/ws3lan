@@ -36,7 +36,7 @@ enum GamepadButton : uint32_t // 基底型を明示的に指定
 };
 
 // 関数のプロトタイプ宣言
-// 受信した文字列データを GamepadData 構造体にパースする関数
-GamepadData parseGamepadData(const std::string &data);
+// 受信した文字列データを GamepadData 構造体にパースし、指定されたGamepadDataオブジェクトを更新する関数
+void gamepad_parse_network_data(const std::string &data, GamepadData* gamepad);
 
 #endif // GAMEPAD_H

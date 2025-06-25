@@ -15,10 +15,10 @@ std::string trim(const std::string &str)
     return str.substr(first, (last - first + 1));
 }
 
-// 受信した文字列データを GamepadData 構造体にパースする関数
-GamepadData parseGamepadData(const std::string &data)
+// 受信した文字列データを GamepadData 構造体にパースし、指定されたGamepadDataオブジェクトを更新する関数
+void gamepad_parse_network_data(const std::string &data, GamepadData* gamepad)
 {
-    GamepadData gamepad;           // パース結果を格納する構造体 (デフォルト値で初期化)
+    // GamepadData* gamepad; // ポインタとして受け取るので、ここでローカル変数を宣言しない
     std::stringstream ss(data);    // 受信した文字列データから文字列ストリームを作成
     std::string token;             // 分割された各トークン (部分文字列) を格納する変数
     int values[7] = {0};           // パースされた整数値を一時的に格納する配列 (7つの要素: LX, LY, RX, RY, LT, RT, Buttons)
@@ -46,14 +46,12 @@ GamepadData parseGamepadData(const std::string &data)
         catch (const std::invalid_argument &e) // stoi が変換できない形式の場合
         {
             std::cerr << "stoiエラー: 無効なデータ形式 (" << token << ") - " << e.what() << std::endl;
-            // 致命的なパースエラーが発生した場合、デフォルトのゲームパッドデータを返す
-            return GamepadData{}; // デフォルト初期化された構造体を返す
+            return; // エラー時は更新せず終了
         }
         catch (const std::out_of_range &e) // stoi の結果が int の範囲外の場合
         {
             std::cerr << "stoiエラー: 数値が範囲外 (" << token << ") - " << e.what() << std::endl;
-            // 致命的なパースエラーが発生した場合、デフォルトのゲームパッドデータを返す
-            return GamepadData{}; // デフォルト初期化された構造体を返す
+            return; // エラー時は更新せず終了
         }
     }
 
@@ -65,14 +63,12 @@ GamepadData parseGamepadData(const std::string &data)
     }
 
     // 解析した値を構造体のメンバーに割り当てる
-    gamepad.leftThumbX = values[0];
-    gamepad.leftThumbY = values[1];
-    gamepad.rightThumbX = values[2];
-    gamepad.rightThumbY = values[3];
-    gamepad.LT = values[4];
-    gamepad.RT = values[5];
-    // ボタンの値を安全に uint16_t にキャスト
-    gamepad.buttons = static_cast<uint16_t>(values[6]);
+    gamepad->leftThumbX = values[0];
+    gamepad->leftThumbY = values[1];
+    gamepad->rightThumbX = values[2];
+    gamepad->rightThumbY = values[3];
+    gamepad->LT = values[4];
+    gamepad->RT = values[5];
+    gamepad->buttons = static_cast<uint16_t>(values[6]);
 
-    return gamepad; // パースされたデータを返す
 }
