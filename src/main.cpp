@@ -5,13 +5,20 @@
 #include "sensor_data.h"      // センサーデータ読み取り・フォーマット関連
 #include "gstPipeline.h"      // GStreamerパイプライン起動用
 #include "config.h"           // 設定ファイル読み込みとグローバル設定オブジェクト
+#include "config_sync.h"      // 設定同期サーバー関連
+
+#include <atomic> // std::atomic
+#include <csignal> // std::signal, SIGINT
 
 #include <iostream> // 標準入出力 (std::cout, std::cerr)
 #include <unistd.h> // POSIX API (usleep)
 #include <string.h> // strlen
 #include <sys/time.h> // gettimeofday
 
-
+// --- グローバル変数 ---
+extern std::mutex g_config_mutex; // 設定オブジェクトを保護するミューテックス (config_sync.cpp で定義)
+// アプリケーションの実行状態を管理するフラグ
+static std::atomic<bool> running(true);
 
 // --- メイン関数 ---
 int main()
@@ -43,6 +50,9 @@ int main()
         return -1;
     }
 
+    // 設定同期TCPサーバーの起動 (メインループ開始前)
+    start_config_sync_server();
+
     // GStreamerパイプラインの起動 (設定は config.h/cpp から取得)
     // GStreamerパイプラインの起動
     if (!start_gstreamer_pipelines())
@@ -65,6 +75,12 @@ int main()
     std::cout << "クライアントからの最初のデータ受信を待機しています... (スラスターはPWM: " << g_config.pwm_min << ")" << std::endl;
     thruster_set_all_pwm(g_config.pwm_min); // プログラム開始時にスラスターを安全な状態に設定
 
+    // Ctrl+C (SIGINT) シグナルハンドラを設定
+    std::signal(SIGINT, [](int) {
+        std::cout << "\nCtrl+C が検出されました。プログラムを終了します。" << std::endl;
+        running = false;
+    });
+
     // running フラグが true の間、ループを継続
     while (running)
     {
@@ -73,6 +89,16 @@ int main()
 
         // 1. ネットワーク接続状態チェック (最後にパケットを受信してからの時間)
         double time_since_last_packet = 0.0;
+
+        // --- スレッドセーフな設定のコピー ---
+        // このループイテレーション中はこのコピーを使用することで、
+        // 他のスレッドからの変更による影響を受けずに済む。
+        AppConfig current_loop_config;
+        {
+            std::lock_guard<std::mutex> lock(g_config_mutex);
+            current_loop_config = g_config;
+        }
+
         // net_ctx.client_addr_known は、network_receive内で最初の有効なパケット受信時にtrueになる
         if (net_ctx.client_addr_known)
         {
@@ -84,7 +110,6 @@ int main()
         ssize_t recv_len = network_receive(&net_ctx, recv_buffer, sizeof(recv_buffer));
         bool just_received_packet = (recv_len > 0);
 
-
         if (just_received_packet)
         {
             if (currently_in_failsafe) // フェイルセーフ状態からの復帰
@@ -93,23 +118,20 @@ int main()
                 currently_in_failsafe = false;
                 // 必要であれば、ここで thruster_init() を呼び出すなど復帰処理を追加
             }
-            std::string received_str(recv_buffer, recv_len); // 受信した長さで文字列を作成
-
-            latest_gamepad_data = parseGamepadData(received_str); // 受信文字列をパース
-            // std::cout << "受信: " << received_str << std::endl; // Debug
+            // 受信データをゲームパッドデータにパース
+            gamepad_parse_network_data(recv_buffer, &latest_gamepad_data);
         }
         else // 今回のループではパケット受信なし
         {
+            // タイムアウトチェック
             // 接続が一度確立された後でタイムアウトした場合
             if (net_ctx.client_addr_known && time_since_last_packet > g_config.connection_timeout_seconds)
             {
                 if (!currently_in_failsafe)
                 {
                     std::cout << "接続がタイムアウトしました。フェイルセーフモード (スラスターPWM: " << g_config.pwm_min << ") に移行します。" << std::endl;
-                    thruster_set_all_pwm(g_config.pwm_min);
+                    thruster_set_all_pwm(current_loop_config.pwm_min);
                     latest_gamepad_data = GamepadData{}; // 古いコマンドをクリア
-                    currently_in_failsafe = true;
-                    // フェイルセーフ起動（接続タイムアウト後）のためプログラムを終了
                     std::cout << "フェイルセーフ起動のためプログラムを終了します。" << std::endl;
                     running = false;
                 }
@@ -125,10 +147,10 @@ int main()
         if (!currently_in_failsafe && running) // プログラムが実行中の場合のみ制御ロジックを実行
         {
             current_gyro_data = read_gyro();
-            thruster_update(latest_gamepad_data, current_gyro_data);
+            thruster_update(latest_gamepad_data, current_gyro_data); // スラスター制御ロジック
 
             // センサーデータ処理 (読み取り、フォーマット、送信) - 一定間隔で実行
-            if (loop_counter >= g_config.sensor_send_interval)
+            if (loop_counter >= current_loop_config.sensor_send_interval) 
             {
                 std::cout << "[SENSOR LOG] " << sensor_buffer << std::endl; // ログは送信時のみ表示
 
@@ -162,7 +184,7 @@ int main()
         // }
 
         // 5. ループ待機 (CPU負荷軽減とループ頻度調整)
-        usleep(g_config.loop_delay_us); // 設定ファイルから取得した値で待機
+        usleep(current_loop_config.loop_delay_us); // 設定ファイルから取得した値で待機
     }
 
     // --- クリーンアップ ---
@@ -170,6 +192,7 @@ int main()
     thruster_disable();      // スラスターへのPWM出力を停止
     network_close(&net_ctx); // ネットワークソケットをクローズ
     stop_gstreamer_pipelines(); // GStreamerパイプラインを停止
+    stop_config_sync_server(); // 設定同期TCPサーバーを停止
     std::cout << "プログラム終了。" << std::endl;
     return 0;
 }

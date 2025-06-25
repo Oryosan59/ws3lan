@@ -4,6 +4,7 @@
 #include <string>
 #include <map>
 #include <iostream>
+#include "nlohmann/json.hpp"
 
 // 設定値を保持する構造体
 struct AppConfig {
@@ -74,5 +75,9 @@ extern AppConfig g_config;
 
 // 設定ファイルを読み込む関数
 bool loadConfig(const std::string& filename);
+
+// AppConfig と nlohmann::json を相互変換するための関数宣言
+void to_json(nlohmann::json& j, const AppConfig& p);
+void from_json(const nlohmann::json& j, AppConfig& p);
 
 #endif // CONFIG_H
