@@ -14,7 +14,7 @@ AppConfig::AppConfig() :
     led_pwm_channel(9), led_pwm_on(1900), led_pwm_off(1100),
     smoothing_factor_horizontal(0.15f), smoothing_factor_vertical(0.2f),
     kp_roll(0.2f), kp_yaw(0.15f), yaw_threshold_dps(2.0f), yaw_gain(50.0f),
-    network_recv_port(12345), network_send_port(12346), connection_timeout_seconds(0.2),
+    network_recv_port(12345), network_send_port(12346), network_allowed_client_ip("192.168.4.10"), connection_timeout_seconds(0.2),
     sensor_send_interval(10), loop_delay_us(10000),
     gst1_device("/dev/video2"), gst1_port(5000), gst1_host("192.168.4.10"),
     gst1_width(1280), gst1_height(720), gst1_framerate_num(30), gst1_framerate_den(1),
@@ -99,6 +99,7 @@ bool loadConfig(const std::string& filename) {
             } else if (current_section == "network") {
                 if (key == "recv_port") g_config.network_recv_port = std::stoi(value);
                 else if (key == "send_port") g_config.network_send_port = std::stoi(value);
+                else if (key == "allowed_client_ip") g_config.network_allowed_client_ip = value;
                 else if (key == "connection_timeout_seconds") g_config.connection_timeout_seconds = std::stod(value);
             } else if (current_section == "application") {
                 if (key == "sensor_send_interval") g_config.sensor_send_interval = std::stoul(value);

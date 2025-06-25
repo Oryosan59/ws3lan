@@ -116,6 +116,21 @@ ssize_t network_receive(NetworkContext *ctx, char *buffer, size_t buffer_size)
     if (recv_len > 0)
     {
         buffer[recv_len] = '\0'; // Null終端
+
+        // --- セキュリティチェック: 許可されたIPアドレスからのパケットか検証 ---
+        char client_ip_str[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &ctx->client_addr_recv.sin_addr, client_ip_str, INET_ADDRSTRLEN);
+        
+        // 設定で許可されたIPアドレス、または "0.0.0.0" (任意) の場合のみ処理を続行
+        if (g_config.network_allowed_client_ip != "0.0.0.0" &&
+            g_config.network_allowed_client_ip != client_ip_str)
+        {
+            fprintf(stderr, "警告: 許可されていないIPアドレス (%s) からのパケットを破棄しました。\n", client_ip_str);
+            // パケットを破棄し、受信しなかったのと同じように振る舞う (受信長0を返す)
+            // これにより、mainループはタイムアウト機構を正しく動作させることができる
+            return 0;
+        }
+
         gettimeofday(&ctx->last_successful_recv_time, NULL); // 最終受信時刻を更新
         // 新しいクライアントか、IPが変わったかチェック
         if (!ctx->client_addr_known || ctx->client_addr_send.sin_addr.s_addr != ctx->client_addr_recv.sin_addr.s_addr)
@@ -170,8 +185,10 @@ bool network_update_send_address(NetworkContext *ctx)
 {
     if (!ctx)
         return false;
+    char client_ip_str[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &ctx->client_addr_recv.sin_addr, client_ip_str, INET_ADDRSTRLEN);
     printf("センサーデータ送信先を設定/更新: %s:%d\n",
-           inet_ntoa(ctx->client_addr_recv.sin_addr),
+           client_ip_str,
            ntohs(ctx->client_addr_send.sin_port));                   // ポートは固定
     ctx->client_addr_send.sin_addr = ctx->client_addr_recv.sin_addr; // IPアドレスを更新
     ctx->client_addr_known = true;

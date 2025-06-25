@@ -33,6 +33,7 @@ struct AppConfig {
     // ネットワーク設定
     int network_recv_port;
     int network_send_port;
+    std::string network_allowed_client_ip; // 許可するクライアントのIPアドレス
     double connection_timeout_seconds;
 
     // アプリケーション設定
