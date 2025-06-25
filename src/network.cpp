@@ -122,8 +122,8 @@ ssize_t network_receive(NetworkContext *ctx, char *buffer, size_t buffer_size)
         inet_ntop(AF_INET, &ctx->client_addr_recv.sin_addr, client_ip_str, INET_ADDRSTRLEN);
         
         // 設定で許可されたIPアドレス、または "0.0.0.0" (任意) の場合のみ処理を続行
-        if (g_config.network_allowed_client_ip != "0.0.0.0" &&
-            g_config.network_allowed_client_ip != client_ip_str)
+        if (g_config.client_host != "0.0.0.0" &&
+            g_config.client_host != client_ip_str)
         {
             fprintf(stderr, "警告: 許可されていないIPアドレス (%s) からのパケットを破棄しました。\n", client_ip_str);
             // パケットを破棄し、受信しなかったのと同じように振る舞う (受信長0を返す)

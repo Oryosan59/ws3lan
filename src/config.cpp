@@ -14,12 +14,12 @@ AppConfig::AppConfig() :
     led_pwm_channel(9), led_pwm_on(1900), led_pwm_off(1100),
     smoothing_factor_horizontal(0.15f), smoothing_factor_vertical(0.2f),
     kp_roll(0.2f), kp_yaw(0.15f), yaw_threshold_dps(2.0f), yaw_gain(50.0f),
-    network_recv_port(12345), network_send_port(12346), network_allowed_client_ip("192.168.4.10"), connection_timeout_seconds(0.2),
+    network_recv_port(12345), network_send_port(12346), client_host("192.168.4.10"), connection_timeout_seconds(0.2),
     sensor_send_interval(10), loop_delay_us(10000),
-    gst1_device("/dev/video2"), gst1_port(5000), gst1_host("192.168.4.10"),
+    gst1_device("/dev/video2"), gst1_port(5000),
     gst1_width(1280), gst1_height(720), gst1_framerate_num(30), gst1_framerate_den(1),
     gst1_is_h264_native_source(true), gst1_rtp_payload_type(96), gst1_rtp_config_interval(1),
-    gst2_device("/dev/video4"), gst2_port(5001), gst2_host("192.168.4.10"),
+    gst2_device("/dev/video4"), gst2_port(5001),
     gst2_width(1280), gst2_height(720), gst2_framerate_num(30), gst2_framerate_den(1),
     gst2_is_h264_native_source(false), gst2_rtp_payload_type(96), gst2_rtp_config_interval(1),
     gst2_x264_bitrate(5000), gst2_x264_tune("zerolatency"), gst2_x264_speed_preset("superfast")
@@ -99,20 +99,18 @@ bool loadConfig(const std::string& filename) {
             } else if (current_section == "network") {
                 if (key == "recv_port") g_config.network_recv_port = std::stoi(value);
                 else if (key == "send_port") g_config.network_send_port = std::stoi(value);
-                else if (key == "allowed_client_ip") g_config.network_allowed_client_ip = value;
+                else if (key == "client_host") g_config.client_host = value;
                 else if (key == "connection_timeout_seconds") g_config.connection_timeout_seconds = std::stod(value);
             } else if (current_section == "application") {
                 if (key == "sensor_send_interval") g_config.sensor_send_interval = std::stoul(value);
                 else if (key == "loop_delay_us") g_config.loop_delay_us = std::stoul(value);
             } else if (current_section == "gstreamer_camera_1") {
-                if (key == "device") g_config.gst1_device = value; else if (key == "port") g_config.gst1_port = std::stoi(value);
-                else if (key == "host") g_config.gst1_host = value; else if (key == "width") g_config.gst1_width = std::stoi(value);
+                if (key == "port") g_config.gst1_port = std::stoi(value);
                 else if (key == "height") g_config.gst1_height = std::stoi(value); else if (key == "framerate_num") g_config.gst1_framerate_num = std::stoi(value);
                 else if (key == "framerate_den") g_config.gst1_framerate_den = std::stoi(value); else if (key == "is_h264_native_source") g_config.gst1_is_h264_native_source = (toLower(value) == "true");
                 else if (key == "rtp_payload_type") g_config.gst1_rtp_payload_type = std::stoi(value); else if (key == "rtp_config_interval") g_config.gst1_rtp_config_interval = std::stoi(value);
             } else if (current_section == "gstreamer_camera_2") {
-                if (key == "device") g_config.gst2_device = value; else if (key == "port") g_config.gst2_port = std::stoi(value);
-                else if (key == "host") g_config.gst2_host = value; else if (key == "width") g_config.gst2_width = std::stoi(value);
+                if (key == "port") g_config.gst2_port = std::stoi(value);
                 else if (key == "height") g_config.gst2_height = std::stoi(value); else if (key == "framerate_num") g_config.gst2_framerate_num = std::stoi(value);
                 else if (key == "framerate_den") g_config.gst2_framerate_den = std::stoi(value); else if (key == "is_h264_native_source") g_config.gst2_is_h264_native_source = (toLower(value) == "true");
                 else if (key == "rtp_payload_type") g_config.gst2_rtp_payload_type = std::stoi(value); else if (key == "rtp_config_interval") g_config.gst2_rtp_config_interval = std::stoi(value);

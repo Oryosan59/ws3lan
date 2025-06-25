@@ -27,7 +27,7 @@ static void run_main_loop(GMainLoop* loop) {
 static bool create_pipeline(const AppConfig& app_config, int camera_idx, GstElement** pipeline_ptr, GMainLoop** loop_ptr) {
     std::string device;
     int port;
-    std::string host;
+    const std::string& host = app_config.client_host; // 共通のホストIPを使用
     int width;
     int height;
     int framerate_num;
@@ -42,7 +42,6 @@ static bool create_pipeline(const AppConfig& app_config, int camera_idx, GstElem
     if (camera_idx == 1) {
         device = app_config.gst1_device;
         port = app_config.gst1_port;
-        host = app_config.gst1_host;
         width = app_config.gst1_width;
         height = app_config.gst1_height;
         framerate_num = app_config.gst1_framerate_num;
@@ -53,7 +52,6 @@ static bool create_pipeline(const AppConfig& app_config, int camera_idx, GstElem
     } else if (camera_idx == 2) {
         device = app_config.gst2_device;
         port = app_config.gst2_port;
-        host = app_config.gst2_host;
         width = app_config.gst2_width;
         height = app_config.gst2_height;
         framerate_num = app_config.gst2_framerate_num;

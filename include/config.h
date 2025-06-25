@@ -33,7 +33,7 @@ struct AppConfig {
     // ネットワーク設定
     int network_recv_port;
     int network_send_port;
-    std::string network_allowed_client_ip; // 許可するクライアントのIPアドレス
+    std::string client_host; // 操縦PC/GStreamer受信先のIPアドレス
     double connection_timeout_seconds;
 
     // アプリケーション設定
@@ -43,7 +43,6 @@ struct AppConfig {
     // GStreamer カメラ1設定
     std::string gst1_device;
     int gst1_port;
-    std::string gst1_host;
     int gst1_width;
     int gst1_height;
     int gst1_framerate_num;
@@ -55,7 +54,6 @@ struct AppConfig {
     // GStreamer カメラ2設定
     std::string gst2_device;
     int gst2_port;
-    std::string gst2_host;
     int gst2_width;
     int gst2_height;
     int gst2_framerate_num;
