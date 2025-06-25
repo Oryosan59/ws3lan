@@ -43,8 +43,23 @@ void to_json(nlohmann::json& j, const AppConfig& p) {
         }},
         {"application", {
             {"sensor_send_interval", p.sensor_send_interval}, {"loop_delay_us", p.loop_delay_us}
+        }},
+        {"gstreamer_camera_1", {
+            {"device", p.gst1_device}, {"port", p.gst1_port},
+            {"width", p.gst1_width}, {"height", p.gst1_height},
+            {"framerate_num", p.gst1_framerate_num}, {"framerate_den", p.gst1_framerate_den},
+            {"is_h264_native_source", p.gst1_is_h264_native_source},
+            {"rtp_payload_type", p.gst1_rtp_payload_type}, {"rtp_config_interval", p.gst1_rtp_config_interval}
+        }},
+        {"gstreamer_camera_2", {
+            {"device", p.gst2_device}, {"port", p.gst2_port},
+            {"width", p.gst2_width}, {"height", p.gst2_height},
+            {"framerate_num", p.gst2_framerate_num}, {"framerate_den", p.gst2_framerate_den},
+            {"is_h264_native_source", p.gst2_is_h264_native_source},
+            {"rtp_payload_type", p.gst2_rtp_payload_type}, {"rtp_config_interval", p.gst2_rtp_config_interval},
+            {"x264_bitrate", p.gst2_x264_bitrate},
+            {"x264_tune", p.gst2_x264_tune}, {"x264_speed_preset", p.gst2_x264_speed_preset}
         }}
-        // GStreamer設定は複雑なので、ここでは省略。必要なら追加。
     };
 }
 
@@ -70,14 +85,52 @@ void from_json(const nlohmann::json& j, AppConfig& p) {
     }
     if (j.contains("thruster_control")) {
         const auto& tc = j.at("thruster_control");
-        update_if_present(tc, "smoothing_factor_horizontal", p.smoothing_factor_horizontal);
-        update_if_present(tc, "smoothing_factor_vertical", p.smoothing_factor_vertical);
+        update_if_present(tc, "smoothing_factor_horizontal", p.smoothing_factor_horizontal); // "sent"や"_present"のタイポを修正
+        update_if_present(tc, "smoothing_factor_vertical", p.smoothing_factor_vertical);   // "sent"や"_present"のタイポを修正
         update_if_present(tc, "kp_roll", p.kp_roll);
         update_if_present(tc, "kp_yaw", p.kp_yaw);
         update_if_present(tc, "yaw_threshold_dps", p.yaw_threshold_dps);
         update_if_present(tc, "yaw_gain", p.yaw_gain);
     }
-    // 他のセクションも同様に追加可能
+    if (j.contains("network")) {
+        const auto& net = j.at("network");
+        update_if_present(net, "recv_port", p.network_recv_port);
+        update_if_present(net, "send_port", p.network_send_port);
+        update_if_present(net, "client_host", p.client_host);
+        update_if_present(net, "connection_timeout_seconds", p.connection_timeout_seconds);
+    }
+    if (j.contains("application")) {
+        const auto& app = j.at("application");
+        update_if_present(app, "sensor_send_interval", p.sensor_send_interval);
+        update_if_present(app, "loop_delay_us", p.loop_delay_us);
+    }
+    if (j.contains("gstreamer_camera_1")) {
+        const auto& gst1 = j.at("gstreamer_camera_1");
+        update_if_present(gst1, "device", p.gst1_device);
+        update_if_present(gst1, "port", p.gst1_port);
+        update_if_present(gst1, "width", p.gst1_width);
+        update_if_present(gst1, "height", p.gst1_height);
+        update_if_present(gst1, "framerate_num", p.gst1_framerate_num);
+        update_if_present(gst1, "framerate_den", p.gst1_framerate_den);
+        update_if_present(gst1, "is_h264_native_source", p.gst1_is_h264_native_source);
+        update_if_present(gst1, "rtp_payload_type", p.gst1_rtp_payload_type);
+        update_if_present(gst1, "rtp_config_interval", p.gst1_rtp_config_interval);
+    }
+    if (j.contains("gstreamer_camera_2")) {
+        const auto& gst2 = j.at("gstreamer_camera_2");
+        update_if_present(gst2, "device", p.gst2_device);
+        update_if_present(gst2, "port", p.gst2_port);
+        update_if_present(gst2, "width", p.gst2_width);
+        update_if_present(gst2, "height", p.gst2_height);
+        update_if_present(gst2, "framerate_num", p.gst2_framerate_num);
+        update_if_present(gst2, "framerate_den", p.gst2_framerate_den);
+        update_if_present(gst2, "is_h264_native_source", p.gst2_is_h264_native_source);
+        update_if_present(gst2, "rtp_payload_type", p.gst2_rtp_payload_type);
+        update_if_present(gst2, "rtp_config_interval", p.gst2_rtp_config_interval);
+        update_if_present(gst2, "x264_bitrate", p.gst2_x264_bitrate);
+        update_if_present(gst2, "x264_tune", p.gst2_x264_tune);
+        update_if_present(gst2, "x264_speed_preset", p.gst2_x264_speed_preset);
+    }
 }
 
 // --- TCPサーバーロジック ---

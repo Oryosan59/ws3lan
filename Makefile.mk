@@ -1,6 +1,6 @@
 # コンパイラとフラグ
 CXX = g++
-CXXFLAGS = -std=c++11 -Wall -Wextra -pedantic -g # デバッグ情報を含める
+CXXFLAGS = -std=c++14 -Wall -Wextra -pedantic -g # デバッグ情報を含める
 
 # --- ディレクトリ定義 ---
 SRC_DIR = src
