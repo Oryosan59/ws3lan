@@ -5,11 +5,13 @@
 #include "sensor_data.h"      // センサーデータ読み取り・フォーマット関連
 #include "gstPipeline.h"      // GStreamerパイプライン起動用
 #include "config.h"           // 設定ファイル読み込みとグローバル設定オブジェクト
+#include "config_synchronizer.h" // 設定同期用
 
 #include <iostream> // 標準入出力 (std::cout, std::cerr)
 #include <unistd.h> // POSIX API (usleep)
 #include <string.h> // strlen
 #include <sys/time.h> // gettimeofday
+#include <csignal> // for signal handling
 
 
 
@@ -21,6 +23,10 @@ int main()
     // config.ini が見つからない場合、またはパースエラーが発生した場合は、
     // AppConfig 構造体のデフォルト値が使用されます。
     loadConfig("config.ini");
+
+    // --- 設定同期スレッドの開始 ---
+    ConfigSynchronizer config_sync("config.ini");
+    config_sync.start();
 
     // --- 初期化 ---
     printf("Initiating navigator module.\n");
@@ -167,6 +173,7 @@ int main()
 
     // --- クリーンアップ ---
     std::cout << "クリーンアップ処理を開始します..." << std::endl;
+    config_sync.stop(); // 設定同期スレッドを停止
     thruster_disable();      // スラスターへのPWM出力を停止
     network_close(&net_ctx); // ネットワークソケットをクローズ
     stop_gstreamer_pipelines(); // GStreamerパイプラインを停止
