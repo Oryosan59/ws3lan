@@ -19,7 +19,7 @@ bool running = true; // メインループの実行フラグ
 // --- シグナルハンドラ ---
 void handle_signal(int signum) {
     std::cout << "
-シグナル " << signum << " を受信。終了処理を開始します..." << std::endl;
+Signal " << signum << " received. Initiating shutdown..." << std::endl;
     running = false;
 }
 
