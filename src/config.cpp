@@ -1,5 +1,5 @@
 #include "config.h"
-#include <iniparser.h>
+#include <iniparser/iniparser.h>
 #include <iostream>
 #include <algorithm> // std::transform
 #include <cctype>    // std::tolower
@@ -115,25 +115,67 @@ void loadConfig(const std::string& filename) {
         return;
     }
 
-    // 各セクションから値を読み込む
+    // ヘルパーラムダ: iniから文字列を取得し、グローバル設定を更新する
+    auto get_and_update = [&](const std::string& section, const std::string& key, const char* default_val) {
+        std::string full_key = section + ":" + key;
+        const char* value = iniparser_getstring(ini, full_key.c_str(), default_val);
+        if (value) {
+            updateGConfigValue(section, key, std::string(value));
+        }
+    };
+
+    // --- すべての既知のセクションとキーを読み込む ---
+    get_and_update("PWM", "PWM_MIN", "1100");
+    get_and_update("PWM", "PWM_NEUTRAL", "1500");
+    get_and_update("PWM", "PWM_NORMAL_MAX", "1900");
+    get_and_update("PWM", "PWM_BOOST_MAX", "1900");
+    get_and_update("PWM", "PWM_FREQUENCY", "50.0");
+
+    get_and_update("JOYSTICK", "DEADZONE", "3000");
+
+    get_and_update("LED", "CHANNEL", "9");
+    get_and_update("LED", "ON_VALUE", "1900");
+    get_and_update("LED", "OFF_VALUE", "1100");
+
+    get_and_update("THRUSTER_CONTROL", "SMOOTHING_FACTOR_HORIZONTAL", "0.15");
+    get_and_update("THRUSTER_CONTROL", "SMOOTHING_FACTOR_VERTICAL", "0.2");
+    get_and_update("THRUSTER_CONTROL", "KP_ROLL", "0.2");
+    get_and_update("THRUSTER_CONTROL", "KP_YAW", "0.15");
+    get_and_update("THRUSTER_CONTROL", "YAW_THRESHOLD_DPS", "2.0");
+    get_and_update("THRUSTER_CONTROL", "YAW_GAIN", "50.0");
+
+    get_and_update("NETWORK", "RECV_PORT", "12345");
+    get_and_update("NETWORK", "SEND_PORT", "12346");
+    get_and_update("NETWORK", "CLIENT_HOST", "192.168.4.10");
+    get_and_update("NETWORK", "CONNECTION_TIMEOUT_SECONDS", "2.0");
+
+    get_and_update("APPLICATION", "SENSOR_SEND_INTERVAL", "10");
+    get_and_update("APPLICATION", "LOOP_DELAY_US", "10000");
+
+    get_and_update("CONFIG_SYNC", "WPF_HOST", "192.168.4.10");
+    get_and_update("CONFIG_SYNC", "WPF_RECV_PORT", "12347");
+    get_and_update("CONFIG_SYNC", "CPP_RECV_PORT", "12348");
+
+    // --- GStreamerセクションの動的読み込み ---
     int n_sections = iniparser_getnsec(ini);
     for (int i = 0; i < n_sections; i++) {
         const char* section_name_char = iniparser_getsecname(ini, i);
         if (section_name_char == NULL) continue;
         std::string section_name(section_name_char);
 
-        const char** keys = iniparser_getseckeys(ini, section_name_char);
-        int n_keys = iniparser_getsecnkeys(ini, section_name_char);
-
-        for (int j = 0; j < n_keys; j++) {
-            const char* key_full = keys[j];
-            const char* key_simple = strrchr(key_full, ':');
-            key_simple = (key_simple) ? key_simple + 1 : key_full;
-            
-            const char* value_char = iniparser_getstring(ini, key_full, NULL);
-            if (value_char) {
-                updateGConfigValue(section_name, key_simple, std::string(value_char));
-            }
+        if (section_name.rfind("GSTREAMER_CAMERA_", 0) == 0) {
+            get_and_update(section_name, "DEVICE", "/dev/video0");
+            get_and_update(section_name, "PORT", "5000");
+            get_and_update(section_name, "WIDTH", "1280");
+            get_and_update(section_name, "HEIGHT", "720");
+            get_and_update(section_name, "FRAMERATE_NUM", "30");
+            get_and_update(section_name, "FRAMERATE_DEN", "1");
+            get_and_update(section_name, "IS_H264_NATIVE_SOURCE", "false");
+            get_and_update(section_name, "RTP_PAYLOAD_TYPE", "96");
+            get_and_update(section_name, "RTP_CONFIG_INTERVAL", "1");
+            get_and_update(section_name, "X264_BITRATE", "5000");
+            get_and_update(section_name, "X264_TUNE", "zerolatency");
+            get_and_update(section_name, "X264_SPEED_PRESET", "superfast");
         }
     }
 
