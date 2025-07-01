@@ -2,77 +2,84 @@
 #define CONFIG_H
 
 #include <string>
+#include <vector>
 #include <map>
-#include <iostream>
+#include <mutex> // std::mutex を使用するため
 
-// 設定値を保持する構造体
+// GStreamerパイプラインごとの設定を保持する構造体
+struct GStreamerConfig {
+    std::string device;
+    int port;
+    int width;
+    int height;
+    int framerate_num;
+    int framerate_den;
+    bool is_h264_native_source;
+    int rtp_payload_type;
+    int rtp_config_interval;
+    int x264_bitrate;
+    std::string x264_tune;
+    std::string x264_speed_preset;
+};
+
+// アプリケーション全体の設定を保持する構造体
 struct AppConfig {
-    // PWM設定
+    // PWM
     int pwm_min;
     int pwm_neutral;
     int pwm_normal_max;
     int pwm_boost_max;
-    float pwm_frequency;
+    double pwm_frequency;
 
-    // ジョイスティック設定
+    // Joystick
     int joystick_deadzone;
 
-    // LED設定
-    int led_pwm_channel;
-    int led_pwm_on;
-    int led_pwm_off;
+    // LED
+    int led_channel;
+    int led_on_value;
+    int led_off_value;
 
-    // スラスター制御設定 (平滑化、ジャイロ補正)
-    float smoothing_factor_horizontal;
-    float smoothing_factor_vertical;
-    float kp_roll;
-    float kp_yaw;
-    float yaw_threshold_dps;
-    float yaw_gain;
+    // Thruster Control
+    double smoothing_factor_horizontal;
+    double smoothing_factor_vertical;
+    double kp_roll;
+    double kp_yaw;
+    double yaw_threshold_dps;
+    double yaw_gain;
 
-    // ネットワーク設定
+    // Network (UDP for gamepad/sensor)
     int network_recv_port;
     int network_send_port;
-    std::string client_host; // 操縦PC/GStreamer受信先のIPアドレス
+    std::string client_host;
     double connection_timeout_seconds;
 
-    // アプリケーション設定
+    // Application
     unsigned int sensor_send_interval;
-    unsigned int loop_delay_us; // usleep の引数
+    unsigned int loop_delay_us;
 
-    // GStreamer カメラ1設定
-    std::string gst1_device;
-    int gst1_port;
-    int gst1_width;
-    int gst1_height;
-    int gst1_framerate_num;
-    int gst1_framerate_den;
-    bool gst1_is_h264_native_source;
-    int gst1_rtp_payload_type;
-    int gst1_rtp_config_interval;
+    // Config Synchronizer (TCP)
+    std::string wpf_host;
+    int wpf_recv_port;
+    int cpp_recv_port;
 
-    // GStreamer カメラ2設定
-    std::string gst2_device;
-    int gst2_port;
-    int gst2_width;
-    int gst2_height;
-    int gst2_framerate_num;
-    int gst2_framerate_den;
-    bool gst2_is_h264_native_source;
-    int gst2_rtp_payload_type;
-    int gst2_rtp_config_interval;
-    int gst2_x264_bitrate;
-    std::string gst2_x264_tune;
-    std::string gst2_x264_speed_preset;
-
-    // デフォルト値を設定するコンストラクタ
-    AppConfig(); // 実装は config.cpp に記述
+    // GStreamer (動的にセクションを保持)
+    std::map<std::string, GStreamerConfig> gstreamer_configs;
 };
 
-// グローバル設定オブジェクト
+// グローバルな設定オブジェクト
+// このオブジェクトは、アプリケーションの起動時に config.ini から読み込まれ、
+// 実行中に ConfigSynchronizer によって更新される可能性があります。
 extern AppConfig g_config;
 
-// 設定ファイルを読み込む関数
-bool loadConfig(const std::string& filename);
+// g_config へのスレッドセーフなアクセスのためのミューテックス
+extern std::mutex g_config_mutex;
+
+// config.ini を読み込み、g_config グローバル変数を初期化する関数
+void loadConfig(const std::string& filename = "config.ini");
+
+// グローバル設定オブジェクトの特定の値を更新するヘルパー関数
+// ConfigSynchronizerが受信したキーと値に基づいてg_configを更新するために使用されます。
+void updateGConfigValue(const std::string& section, const std::string& key, const std::string& value);
+
 
 #endif // CONFIG_H

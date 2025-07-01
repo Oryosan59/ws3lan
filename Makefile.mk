@@ -33,7 +33,7 @@ LDFLAGS = -L$(NAVIGATOR_LIB_PATH) \
 
 # --- リンクするライブラリ ---
 # コマンドで指定された特定のライブラリ名を使用
-LIBS = -lbluerobotics_navigator -lpthread -lm
+LIBS = -lbluerobotics_navigator -lpthread -lm -liniparser
 LIBS += $(GSTREAMER_LIBS) # GStreamer のリンクライブラリを追加
 
 # --- ターゲット実行ファイル ---
