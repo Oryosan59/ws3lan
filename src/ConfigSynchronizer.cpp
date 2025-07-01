@@ -36,7 +36,7 @@
 #include <signal.h>
 
 // iniparserライブラリ
-#include <iniparser.h>
+#include <iniparser/iniparser.h>
 
 // --- グローバル変数 ---
 static std::thread g_receiver_thread;
