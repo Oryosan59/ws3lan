@@ -58,7 +58,7 @@ int main()
         return -1;
     }
 
-    if (!start_gstreamer_pipelines())
+    if (!start_gstreamer_pipelines(g_config))
     {
         std::cerr << "GStreamerパイプラインの起動に失敗しました。処理を続行します..." << std::endl;
     }
