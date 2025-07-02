@@ -265,16 +265,27 @@ void thruster_update(const GamepadData &gamepad_data, const AxisData &gyro_data)
     }
     
     // 前進/後退スラスター (Ch4, Ch5) の平滑化
-    current_pwm_values[4] = smooth_interpolate(
-        current_pwm_values[4], 
-        static_cast<float>(target_forward_pwm),
-        g_config.smoothing_factor_vertical
-    );
-    current_pwm_values[5] = smooth_interpolate(
-        current_pwm_values[5], 
-        static_cast<float>(target_forward_pwm),
-        g_config.smoothing_factor_vertical
-    );
+    float target_forward_val = static_cast<float>(target_forward_pwm);
+
+    if (target_forward_val > current_pwm_values[4]) { // 加速時のみ平滑化
+        current_pwm_values[4] = smooth_interpolate(
+            current_pwm_values[4], 
+            target_forward_val,
+            g_config.smoothing_factor_vertical
+        );
+    } else { // 減速時または維持時は即座に適用
+        current_pwm_values[4] = target_forward_val;
+    }
+
+    if (target_forward_val > current_pwm_values[5]) { // 加速時のみ平滑化
+        current_pwm_values[5] = smooth_interpolate(
+            current_pwm_values[5], 
+            target_forward_val,
+            g_config.smoothing_factor_vertical
+        );
+    } else { // 減速時または維持時は即座に適用
+        current_pwm_values[5] = target_forward_val;
+    }
 
     // --- PWM信号をスラスターに送信 ---
     printf("--- Thruster and LED PWM (Smoothed) ---\n");
