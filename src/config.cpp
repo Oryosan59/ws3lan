@@ -3,9 +3,13 @@
 #include <sstream>
 #include <algorithm> // for std::transform
 #include <cctype>    // for std::isspace
+#include <atomic>    // for std::atomic
 
 // グローバル設定オブジェクトの実体
 AppConfig g_config;
+
+// 設定ファイルが更新されたことをメインスレッドに通知するためのフラグ
+std::atomic<bool> g_config_updated_flag(false);
 
 // AppConfig コンストラクタの実装 (デフォルト値の設定)
 AppConfig::AppConfig() :
