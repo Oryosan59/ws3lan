@@ -150,8 +150,8 @@ void ConfigSynchronizer::update_config_from_string(const std::string& data) {
     if (updates_count > 0) {
         std::cout << "Updated " << updates_count << " config items from WPF." << std::endl;
         save_config();
-        // Reload the application's main config
-        loadConfig(m_config_path);
+        // Signal the main thread to reload the config
+        g_config_updated_flag.store(true);
     }
 }
 

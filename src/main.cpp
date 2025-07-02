@@ -74,6 +74,13 @@ int main()
     // running フラグが true の間、ループを継続
     while (running)
     {
+        // 設定ファイルが外部から更新されたかチェックし、リロードする
+        if (g_config_updated_flag.load()) {
+            std::cout << "Configuration file has been updated. Reloading..." << std::endl;
+            loadConfig("config.ini");
+            g_config_updated_flag.store(false); // Reset the flag
+        }
+
         struct timeval current_time_tv;
         gettimeofday(&current_time_tv, NULL);
 
@@ -174,9 +181,13 @@ int main()
     // --- クリーンアップ ---
     std::cout << "クリーンアップ処理を開始します..." << std::endl;
     config_sync.stop(); // 設定同期スレッドを停止
+    std::cout << "設定同期スレッドを停止しました..." << std::endl;
     thruster_disable();      // スラスターへのPWM出力を停止
+    std::cout << "PWMの出力を停止しました..." << std::endl;
     network_close(&net_ctx); // ネットワークソケットをクローズ
+    std::cout << "ネットワークをクローズしました..." << std::endl;
     stop_gstreamer_pipelines(); // GStreamerパイプラインを停止
+    std::cout << "Gstreamerパイプラインを停止しました..." << std::endl;
     std::cout << "プログラム終了。" << std::endl;
     return 0;
 }
