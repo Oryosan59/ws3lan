@@ -149,19 +149,21 @@ void ConfigSynchronizer::update_config_from_string(const std::string& data) {
     std::string line;
     int updates_count = 0;
 
-    std::lock_guard<std::mutex> lock(g_config_mutex);
-    while (std::getline(ss, line, '\n')) {
-        if (line.empty() || line[0] != '[') continue;
+    {
+        std::lock_guard<std::mutex> lock(g_config_mutex);
+        while (std::getline(ss, line, '\n')) {
+            if (line.empty() || line[0] != '[') continue;
 
-        size_t section_end = line.find(']');
-        size_t equals_pos = line.find('=', section_end);
+            size_t section_end = line.find(']');
+            size_t equals_pos = line.find('=', section_end);
 
-        if (section_end != std::string::npos && equals_pos != std::string::npos) {
-            std::string section = line.substr(1, section_end - 1);
-            std::string key = line.substr(section_end + 1, equals_pos - (section_end + 1));
-            std::string value = line.substr(equals_pos + 1);
-            g_sync_config_data[section][key] = value;
-            updates_count++;
+            if (section_end != std::string::npos && equals_pos != std::string::npos) {
+                std::string section = line.substr(1, section_end - 1);
+                std::string key = line.substr(section_end + 1, equals_pos - (section_end + 1));
+                std::string value = line.substr(equals_pos + 1);
+                g_sync_config_data[section][key] = value;
+                updates_count++;
+            }
         }
     }
 
