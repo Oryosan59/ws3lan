@@ -58,8 +58,26 @@ void ConfigSynchronizer::run() {
         return;
     }
 
-    send_config_to_wpf();
-    receive_config_updates();
+    // Keep trying to connect and send the initial config until successful
+    while (!m_shutdown_flag.load()) {
+        std::cout << "Attempting to connect to WPF to send initial configuration..." << std::endl;
+        if (send_config_to_wpf()) {
+            std::cout << "Initial configuration sent successfully." << std::endl;
+            break; // Success, exit the loop
+        }
+        std::cerr << "Failed to send initial configuration. Retrying in 5 seconds..." << std::endl;
+        
+        // Wait for 5 seconds before retrying, but check shutdown flag periodically
+        for (int i = 0; i < 5; ++i) {
+            if (m_shutdown_flag.load()) break;
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+    }
+
+    // If not shutting down, proceed to listen for updates
+    if (!m_shutdown_flag.load()) {
+        receive_config_updates();
+    }
 
     std::cout << "ConfigSynchronizer thread finished." << std::endl;
 }
