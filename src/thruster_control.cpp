@@ -330,7 +330,7 @@ void thruster_set_all_pwm(int pwm_value)
 }
 
 // 平滑化係数を動的に変更する関数（オプション）
-void thruster_set_smoothing_factors(float horizontal_factor, float vertical_factor)
+void thruster_set_smoothing_factors()
 {
     // この関数を使用する場合は、定数を変数に変更する必要があります
     printf("平滑化係数変更は config.ini を介して行われます。\n"); // NOLINT
