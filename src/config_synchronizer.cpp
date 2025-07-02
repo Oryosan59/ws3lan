@@ -202,6 +202,15 @@ bool ConfigSynchronizer::send_config_to_wpf() {
 }
 
 void ConfigSynchronizer::handle_client_connection(int client_sock) {
+    // Set a receive timeout on the client socket. This is crucial to prevent
+    // the thread from blocking indefinitely on a recv() call if a client
+    // connects but doesn't send data. An indefinite block would prevent a clean
+    // shutdown of the application.
+    struct timeval tv;
+    tv.tv_sec = 1;  // 1-second timeout
+    tv.tv_usec = 0;
+    setsockopt(client_sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv);
+
     char buffer[4096] = {0};
     std::string header;
     char c;
@@ -225,6 +234,7 @@ void ConfigSynchronizer::handle_client_connection(int client_sock) {
     while (total_received < expected_length) {
         ssize_t bytes_received = recv(client_sock, buffer, sizeof(buffer), 0);
         if (bytes_received <= 0) {
+            std::cerr << "Error receiving config data body: connection closed, timed out, or error." << std::endl;
             close(client_sock);
             return;
         }
