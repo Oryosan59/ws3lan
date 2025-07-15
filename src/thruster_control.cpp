@@ -7,7 +7,31 @@
 // 現在のPWM値を保持する静的変数（実際に出力される値）
 static float current_pwm_values[NUM_THRUSTERS]; // 初期化は thruster_init で行う
 
-// --- 定数 (config.h から移動) ---
+// 平滑化用の目標値追跡変数
+static float target_pwm_values[NUM_THRUSTERS];
+
+// 加速度制限用の前回値
+static float previous_target_values[NUM_THRUSTERS];
+
+// 姿勢固定用の変数
+static bool position_hold_mode = false;
+static float yaw_reference = 0.0f;
+static float pitch_reference = 0.0f;
+static float roll_reference = 0.0f;
+
+// 積分制御用の変数
+static float yaw_integral = 0.0f;
+static float pitch_integral = 0.0f;
+static float roll_integral = 0.0f;
+
+// --- 定数設定 ---
+const float MAX_ACCELERATION = 200.0f;     // PWM/秒の最大加速度
+const float SMOOTH_DECELERATION = 0.3f;    // 減速時の平滑化係数
+const float SMOOTH_ACCELERATION = 0.05f;   // 加速時の平滑化係数（よりゆっくり）
+const float YAW_HOLD_THRESHOLD = 5.0f;     // 姿勢固定開始閾値（度/秒）
+const float GYRO_DEADZONE = 1.0f;          // ジャイロのデッドゾーン（度/秒）
+const float INTEGRAL_LIMIT = 500.0f;       // 積分制御の上限
+
 // --- ヘルパー関数 ---
 
 // 線形補正関数
@@ -15,37 +39,63 @@ static float map_value(float x, float in_min, float in_max, float out_min, float
 {
     if (in_max == in_min)
     {
-        // ゼロ除算を回避
         return out_min;
     }
-    // マッピング前に入力値を指定範囲内にクランプ
     x = std::max(in_min, std::min(x, in_max));
     return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
 }
 
-// 線形補間による平滑化関数
-static float smooth_interpolate(float current_value, float target_value, float smoothing_factor)
+// 改良された平滑化関数（加速度制限付き）
+static float advanced_smooth_interpolate(float current_value, float target_value, float dt)
 {
-    // 線形補間: current + (target - current) * factor
-    // factor = 0.0 なら変化なし、factor = 1.0 なら即座に目標値に到達
-    return current_value + (target_value - current_value) * smoothing_factor;
+    float diff = target_value - current_value;
+    float max_change = MAX_ACCELERATION * dt;
+    
+    // 加速度を制限
+    if (std::abs(diff) > max_change)
+    {
+        diff = (diff > 0) ? max_change : -max_change;
+    }
+    
+    // 加速時と減速時で異なる平滑化係数を使用
+    float smoothing_factor;
+    if (target_value > current_value)
+    {
+        // 加速時：よりゆっくりと
+        smoothing_factor = SMOOTH_ACCELERATION;
+    }
+    else
+    {
+        // 減速時：即座に応答
+        smoothing_factor = SMOOTH_DECELERATION;
+    }
+    
+    return current_value + diff * smoothing_factor;
 }
 
-// PWM値を設定するヘルパー (範囲チェックとデューティサイクル計算を含む)
+// PWM値を設定するヘルパー
 static void set_thruster_pwm(int channel, int pulse_width_us)
 {
-    // PWM値が有効な動作範囲内にあることを保証するためにクランプ
-    // 注意: クランプの上限として PWM_BOOST_MAX を使用
     int clamped_pwm = std::max(g_config.pwm_min, std::min(pulse_width_us, g_config.pwm_boost_max));
-
-    // デューティサイクルを計算
-    float duty_cycle = static_cast<float>(clamped_pwm) / (1000000.0f / g_config.pwm_frequency); // PWM_PERIOD_US の計算をインライン化
-
-    // 指定されたチャンネルのPWMデューティサイクルを設定
+    float duty_cycle = static_cast<float>(clamped_pwm) / (1000000.0f / g_config.pwm_frequency);
     set_pwm_channel_duty_cycle(channel, duty_cycle);
+}
 
-    // デバッグ出力 (オプション)
-    // printf("Ch%d: Set PWM = %d (Clamped: %d), Duty = %.4f\n", channel, pulse_width_us, clamped_pwm, duty_cycle); // NOLINT
+// PID制御関数
+static float pid_control(float error, float &integral, float kp, float ki, float kd, float dt, float prev_error)
+{
+    // 比例制御
+    float proportional = kp * error;
+    
+    // 積分制御（ワインドアップ防止）
+    integral += error * dt;
+    integral = std::max(-INTEGRAL_LIMIT, std::min(integral, INTEGRAL_LIMIT));
+    float integral_term = ki * integral;
+    
+    // 微分制御
+    float derivative = kd * (error - prev_error) / dt;
+    
+    return proportional + integral_term + derivative;
 }
 
 // --- モジュール関数 ---
@@ -53,21 +103,30 @@ static void set_thruster_pwm(int channel, int pulse_width_us)
 bool thruster_init()
 {
     printf("Enabling PWM\n");
-    set_pwm_enable(true); // NOLINT
+    set_pwm_enable(true);
     printf("Setting PWM frequency to %.1f Hz\n", g_config.pwm_frequency);
-    set_pwm_freq_hz(g_config.pwm_frequency); // NOLINT
+    set_pwm_freq_hz(g_config.pwm_frequency);
 
-    
-    // すべてのスラスターをニュートラル/最小値に初期化
+    // すべてのスラスターをニュートラルに初期化
     for (int i = 0; i < NUM_THRUSTERS; ++i)
-    { // NOLINT
+    {
         set_thruster_pwm(i, g_config.pwm_min);
-        current_pwm_values[i] = static_cast<float>(g_config.pwm_min); // 平滑化用の現在値も初期化
+        current_pwm_values[i] = static_cast<float>(g_config.pwm_min);
+        target_pwm_values[i] = static_cast<float>(g_config.pwm_min);
+        previous_target_values[i] = static_cast<float>(g_config.pwm_min);
     }
     
-    // LEDチャンネルを初期状態 (OFF) に設定
+    // LEDチャンネルを初期状態に設定
     set_thruster_pwm(g_config.led_pwm_channel, g_config.led_pwm_off);
-    printf("Thrusters initialized to PWM %d. LED on Ch%d initialized to PWM %d (OFF).\n", g_config.pwm_min, g_config.led_pwm_channel, g_config.led_pwm_off);
+    
+    // 姿勢固定モードを無効化
+    position_hold_mode = false;
+    yaw_integral = 0.0f;
+    pitch_integral = 0.0f;
+    roll_integral = 0.0f;
+    
+    printf("Thrusters initialized to PWM %d. LED on Ch%d initialized to PWM %d (OFF).\n", 
+           g_config.pwm_min, g_config.led_pwm_channel, g_config.led_pwm_off);
     return true;
 }
 
@@ -75,269 +134,366 @@ void thruster_disable()
 {
     printf("Disabling PWM\n");
     for (int i = 0; i < NUM_THRUSTERS; ++i)
-    { // NOLINT
+    {
         set_thruster_pwm(i, g_config.pwm_min);
-        current_pwm_values[i] = static_cast<float>(g_config.pwm_min); // 平滑化用の現在値もリセット
+        current_pwm_values[i] = static_cast<float>(g_config.pwm_min);
+        target_pwm_values[i] = static_cast<float>(g_config.pwm_min);
+        previous_target_values[i] = static_cast<float>(g_config.pwm_min);
     }
-    // LEDチャンネルをOFFに設定
     set_thruster_pwm(g_config.led_pwm_channel, g_config.led_pwm_off);
-    set_pwm_enable(false); // NOLINT
+    position_hold_mode = false;
+    set_pwm_enable(false);
 }
 
-// 水平スラスター制御ロジック (updateThrustersFromSticksの内容を移植・調整)
+// 姿勢固定モードの制御
+static void update_position_hold(const AxisData &gyro_data, int pwm_corrections[4])
+{
+    static float prev_yaw_error = 0.0f;
+    static float prev_pitch_error = 0.0f;
+    static float prev_roll_error = 0.0f;
+    
+    const float dt = 0.02f; // 50Hz制御周期を想定
+    
+    // ヨー軸制御（Z軸）
+    float yaw_error = -(gyro_data.z - yaw_reference);
+    if (std::abs(yaw_error) > GYRO_DEADZONE)
+    {
+        float yaw_correction = pid_control(yaw_error, yaw_integral, 
+                                          g_config.kp_yaw * 2.0f, 0.5f, 0.1f, 
+                                          dt, prev_yaw_error);
+        
+        // ヨー補正をチャンネルに配分
+        int yaw_pwm = static_cast<int>(yaw_correction);
+        yaw_pwm = std::max(-300, std::min(300, yaw_pwm));
+        
+        if (yaw_pwm > 0)
+        {
+            pwm_corrections[0] += yaw_pwm;
+            pwm_corrections[3] += yaw_pwm;
+        }
+        else
+        {
+            pwm_corrections[1] += std::abs(yaw_pwm);
+            pwm_corrections[2] += std::abs(yaw_pwm);
+        }
+    }
+    
+    // ピッチ軸制御（Y軸）
+    float pitch_error = -(gyro_data.y - pitch_reference);
+    if (std::abs(pitch_error) > GYRO_DEADZONE)
+    {
+        float pitch_correction = pid_control(pitch_error, pitch_integral,
+                                           g_config.kp_yaw * 1.5f, 0.3f, 0.05f,
+                                           dt, prev_pitch_error);
+        
+        // ピッチ補正（前後バランス）
+        int pitch_pwm = static_cast<int>(pitch_correction);
+        pitch_pwm = std::max(-200, std::min(200, pitch_pwm));
+        
+        if (pitch_pwm > 0)
+        {
+            pwm_corrections[0] += pitch_pwm;
+            pwm_corrections[1] += pitch_pwm;
+        }
+        else
+        {
+            pwm_corrections[2] += std::abs(pitch_pwm);
+            pwm_corrections[3] += std::abs(pitch_pwm);
+        }
+    }
+    
+    // ロール軸制御（X軸）
+    float roll_error = -(gyro_data.x - roll_reference);
+    if (std::abs(roll_error) > GYRO_DEADZONE)
+    {
+        float roll_correction = pid_control(roll_error, roll_integral,
+                                          g_config.kp_roll * 1.5f, 0.3f, 0.05f,
+                                          dt, prev_roll_error);
+        
+        // ロール補正（左右バランス）
+        int roll_pwm = static_cast<int>(roll_correction);
+        roll_pwm = std::max(-200, std::min(200, roll_pwm));
+        
+        if (roll_pwm > 0)
+        {
+            pwm_corrections[0] += roll_pwm;
+            pwm_corrections[2] += roll_pwm;
+        }
+        else
+        {
+            pwm_corrections[1] += std::abs(roll_pwm);
+            pwm_corrections[3] += std::abs(roll_pwm);
+        }
+    }
+    
+    prev_yaw_error = yaw_error;
+    prev_pitch_error = pitch_error;
+    prev_roll_error = roll_error;
+}
+
+// 水平スラスター制御ロジック（改良版）
 static void update_horizontal_thrusters(const GamepadData &data, const AxisData &gyro_data, int target_pwm_out[4])
 {
-    // Initialize target PWM array to neutral/min
-    for (int i = 0; i < 4; ++i) { // NOLINT
+    // 初期化
+    for (int i = 0; i < 4; ++i)
+    {
         target_pwm_out[i] = g_config.pwm_min;
     }
 
     bool lx_active = std::abs(data.leftThumbX) > g_config.joystick_deadzone;
+    bool ly_active = std::abs(data.leftThumbY) > g_config.joystick_deadzone;
     bool rx_active = std::abs(data.rightThumbX) > g_config.joystick_deadzone;
+    bool ry_active = std::abs(data.rightThumbY) > g_config.joystick_deadzone;
 
-    int pwm_lx[4] = {g_config.pwm_min, g_config.pwm_min, g_config.pwm_min, g_config.pwm_min}; // NOLINT
-    int pwm_rx[4] = {g_config.pwm_min, g_config.pwm_min, g_config.pwm_min, g_config.pwm_min}; // NOLINT
-
-    // Lx (回転) の寄与 (PWM_MIN - PWM_NORMAL_MAX にマッピング)
-    if (data.leftThumbX < -g_config.joystick_deadzone)
-    { // 左旋回
-        int val = static_cast<int>(map_value(data.leftThumbX, -32768, -g_config.joystick_deadzone, g_config.pwm_normal_max, g_config.pwm_min));
-        pwm_lx[1] = val; // Ch 1 (前右)
-        pwm_lx[2] = val; // Ch 2 (後左)
-    }
-    else if (data.leftThumbX > g_config.joystick_deadzone)
-    { // 右旋回
-        int val = static_cast<int>(map_value(data.leftThumbX, g_config.joystick_deadzone, 32767, g_config.pwm_min, g_config.pwm_normal_max));
-        pwm_lx[0] = val; // Ch 0 (前左)
-        pwm_lx[3] = val; // Ch 3 (後右)
-    }
-
-    // Rx (平行移動) の寄与 (PWM_MIN - PWM_NORMAL_MAX にマッピング)
-    if (data.rightThumbX < -g_config.joystick_deadzone)
-    { // 左平行移動
-        int val = static_cast<int>(map_value(data.rightThumbX, -32768, -g_config.joystick_deadzone, g_config.pwm_normal_max, g_config.pwm_min));
-        pwm_rx[1] = val; // Ch 1 (前右)
-        pwm_rx[3] = val; // Ch 3 (後右)
-    }
-    else if (data.rightThumbX > g_config.joystick_deadzone)
-    { // 右平行移動
-        int val = static_cast<int>(map_value(data.rightThumbX, g_config.joystick_deadzone, 32767, g_config.pwm_min, g_config.pwm_normal_max));
-        pwm_rx[0] = val; // Ch 0 (前左)
-        pwm_rx[2] = val; // Ch 2 (後左)
-    }
-
-    // 両方のスティックがアクティブな場合、寄与を結合してブーストを適用
-    if (lx_active && rx_active)
+    // 姿勢固定モードの判定とリセット
+    if (!lx_active && !ly_active && !rx_active && !ry_active)
     {
-        const int boost_range = g_config.pwm_boost_max - g_config.pwm_normal_max;
-        int abs_lx = std::abs(data.leftThumbX);
-        int abs_rx = std::abs(data.rightThumbX);
-        int weaker_input_abs = std::min(abs_lx, abs_rx);
-        int boost_add = static_cast<int>(map_value(weaker_input_abs, g_config.joystick_deadzone, 32768, 0, boost_range));
-
-        // スティックの方向に基づいてブーストされるチャンネルを決定
-        if (data.leftThumbX < 0 && data.rightThumbX < 0)
-        { // 左旋回 + 左平行移動 -> Ch 1 (FR) をブースト
-            target_pwm_out[0] = std::max(pwm_lx[0], pwm_rx[0]);
-            target_pwm_out[1] = std::max(pwm_lx[1], pwm_rx[1]) + boost_add;
-            target_pwm_out[2] = std::max(pwm_lx[2], pwm_rx[2]);
-            target_pwm_out[3] = std::max(pwm_lx[3], pwm_rx[3]);
+        if (!position_hold_mode)
+        {
+            // 姿勢固定モード開始
+            position_hold_mode = true;
+            yaw_reference = 0.0f;
+            pitch_reference = 0.0f;
+            roll_reference = 0.0f;
+            yaw_integral = 0.0f;
+            pitch_integral = 0.0f;
+            roll_integral = 0.0f;
+            printf("Position hold mode ENABLED\n");
         }
-        else if (data.leftThumbX < 0 && data.rightThumbX > 0)
-        { // 左旋回 + 右平行移動 -> Ch 2 (RL) をブースト
-            target_pwm_out[0] = std::max(pwm_lx[0], pwm_rx[0]);
-            target_pwm_out[1] = std::max(pwm_lx[1], pwm_rx[1]);
-            target_pwm_out[2] = std::max(pwm_lx[2], pwm_rx[2]) + boost_add;
-            target_pwm_out[3] = std::max(pwm_lx[3], pwm_rx[3]);
-        }
-        else if (data.leftThumbX > 0 && data.rightThumbX < 0)
-        { // 右旋回 + 左平行移動 -> Ch 3 (RR) をブースト
-            target_pwm_out[0] = std::max(pwm_lx[0], pwm_rx[0]);
-            target_pwm_out[1] = std::max(pwm_lx[1], pwm_rx[1]);
-            target_pwm_out[2] = std::max(pwm_lx[2], pwm_rx[2]);
-            target_pwm_out[3] = std::max(pwm_lx[3], pwm_rx[3]) + boost_add;
-        }
-        else
-        { // 右旋回 + 右平行移動 -> Ch 0 (FL) をブースト
-            target_pwm_out[0] = std::max(pwm_lx[0], pwm_rx[0]) + boost_add;
-            target_pwm_out[1] = std::max(pwm_lx[1], pwm_rx[1]);
-            target_pwm_out[2] = std::max(pwm_lx[2], pwm_rx[2]);
-            target_pwm_out[3] = std::max(pwm_lx[3], pwm_rx[3]);
-        }
-    }
-    else
-    {
-        // 一方のスティックのみアクティブ、またはどちらも非アクティブ: 単純な組み合わせ (最大値)
+        
+        // 姿勢固定制御
+        int hold_corrections[4] = {0, 0, 0, 0};
+        update_position_hold(gyro_data, hold_corrections);
+        
         for (int i = 0; i < 4; ++i)
         {
-            target_pwm_out[i] = std::max(pwm_lx[i], pwm_rx[i]);
+            target_pwm_out[i] = g_config.pwm_min + hold_corrections[i];
+            target_pwm_out[i] = std::max(g_config.pwm_min, 
+                                       std::min(target_pwm_out[i], g_config.pwm_boost_max));
         }
-    }
-
-    // --- ジャイロによるロール安定化補正 (エルロン操作時) ---
-    if (rx_active) // エルロン操作中のみ安定化制御を行う
-    {
-        // --- ロール補正 ---
-        float roll_rate = gyro_data.x; // X軸はロールレート
-        const float Kp_roll = g_config.kp_roll;
-        int correction_pwm_roll = static_cast<int>(roll_rate * Kp_roll);
-
-        target_pwm_out[0] -= correction_pwm_roll;
-        target_pwm_out[1] += correction_pwm_roll;
-        target_pwm_out[2] += correction_pwm_roll;
-        target_pwm_out[3] -= correction_pwm_roll;
-
-        // --- ヨー補正 (Z軸回転の調整) ---
-        float yaw_rate = gyro_data.z; // Z軸はヨーレート
-        const float Kp_yaw = g_config.kp_yaw;
-        int correction_pwm_yaw = static_cast<int>(yaw_rate * Kp_yaw);
-
-        target_pwm_out[0] -= correction_pwm_yaw;
-        target_pwm_out[1] += correction_pwm_yaw;
-        target_pwm_out[2] += correction_pwm_yaw;
-        target_pwm_out[3] -= correction_pwm_yaw;
-    }
-
-    // --- GyroによるYaw補正 (Rx入力時にZ軸回転しないよう補正) ---
-    if (!lx_active)
-    {
-        const float yaw_threshold_dps = g_config.yaw_threshold_dps;
-        const float yaw_gain = g_config.yaw_gain;
-        float yaw_rate = -gyro_data.z;
-
-        if (std::abs(yaw_rate) > yaw_threshold_dps)
-        {
-            int yaw_pwm = static_cast<int>(yaw_rate * -yaw_gain);
-            yaw_pwm = std::max(-400, std::min(400, yaw_pwm)); // 補正の最大値をクランプ
-
-            if (yaw_pwm < 0)
-            {
-                target_pwm_out[0] = std::min(g_config.pwm_boost_max, target_pwm_out[0] + std::abs(yaw_pwm));
-                target_pwm_out[3] = std::min(g_config.pwm_boost_max, target_pwm_out[3] + std::abs(yaw_pwm));
-            }
-            else
-            {
-                target_pwm_out[1] = std::min(g_config.pwm_boost_max, target_pwm_out[1] + yaw_pwm);
-                target_pwm_out[2] = std::min(g_config.pwm_boost_max, target_pwm_out[2] + yaw_pwm);
-            }
-        }
-    }
-}
-
-// 前進/後退スラスター制御ロジック
-static int calculate_forward_reverse_pwm(int value)
-{
-    int pulse_width;
-    const int current_max_pwm = g_config.pwm_boost_max;
-    const int current_min_pwm = g_config.pwm_min;
-
-    if (value <= g_config.joystick_deadzone)
-    {
-        pulse_width = g_config.pwm_min;
+        return;
     }
     else
     {
-        pulse_width = static_cast<int>(map_value(value, g_config.joystick_deadzone, 32767, g_config.pwm_min, current_max_pwm));
+        if (position_hold_mode)
+        {
+            printf("Position hold mode DISABLED\n");
+            position_hold_mode = false;
+        }
     }
-    return pulse_width;
-}
 
-// メインの更新関数（平滑化機能付き）
-void thruster_update(const GamepadData &gamepad_data, const AxisData &gyro_data)
-{
-    // --- 目標PWM値の計算 ---
-    int target_horizontal_pwm[4];
-    update_horizontal_thrusters(gamepad_data, gyro_data, target_horizontal_pwm);
+    // 通常の操作制御
+    int pwm_lx[4] = {g_config.pwm_min, g_config.pwm_min, g_config.pwm_min, g_config.pwm_min};
+    int pwm_ly[4] = {g_config.pwm_min, g_config.pwm_min, g_config.pwm_min, g_config.pwm_min};
+    int pwm_rx[4] = {g_config.pwm_min, g_config.pwm_min, g_config.pwm_min, g_config.pwm_min};
 
-    // 前進/後退の目標PWM値
-    int target_forward_pwm = calculate_forward_reverse_pwm(gamepad_data.rightThumbY);
+    // 左スティックX（回転）
+    if (data.leftThumbX < -g_config.joystick_deadzone)
+    {
+        int val = static_cast<int>(map_value(data.leftThumbX, -32768, -g_config.joystick_deadzone, 
+                                           g_config.pwm_normal_max, g_config.pwm_min));
+        pwm_lx[1] = val; // 前右
+        pwm_lx[2] = val; // 後左
+    }
+    else if (data.leftThumbX > g_config.joystick_deadzone)
+    {
+        int val = static_cast<int>(map_value(data.leftThumbX, g_config.joystick_deadzone, 32767, 
+                                           g_config.pwm_min, g_config.pwm_normal_max));
+        pwm_lx[0] = val; // 前左
+        pwm_lx[3] = val; // 後右
+    }
 
-    // --- 平滑化処理：現在値を目標値に向けて線形補間 ---
-    
-    // 水平スラスター (Ch0-3) の平滑化
+    // 左スティックY（前後移動）
+    if (data.leftThumbY < -g_config.joystick_deadzone)
+    {
+        int val = static_cast<int>(map_value(data.leftThumbY, -32768, -g_config.joystick_deadzone, 
+                                           g_config.pwm_normal_max, g_config.pwm_min));
+        pwm_ly[0] = val; // 前左
+        pwm_ly[1] = val; // 前右
+    }
+    else if (data.leftThumbY > g_config.joystick_deadzone)
+    {
+        int val = static_cast<int>(map_value(data.leftThumbY, g_config.joystick_deadzone, 32767, 
+                                           g_config.pwm_min, g_config.pwm_normal_max));
+        pwm_ly[2] = val; // 後左
+        pwm_ly[3] = val; // 後右
+    }
+
+    // 右スティックX（平行移動）
+    if (data.rightThumbX < -g_config.joystick_deadzone)
+    {
+        int val = static_cast<int>(map_value(data.rightThumbX, -32768, -g_config.joystick_deadzone, 
+                                           g_config.pwm_normal_max, g_config.pwm_min));
+        pwm_rx[1] = val; // 前右
+        pwm_rx[3] = val; // 後右
+    }
+    else if (data.rightThumbX > g_config.joystick_deadzone)
+    {
+        int val = static_cast<int>(map_value(data.rightThumbX, g_config.joystick_deadzone, 32767, 
+                                           g_config.pwm_min, g_config.pwm_normal_max));
+        pwm_rx[0] = val; // 前左
+        pwm_rx[2] = val; // 後左
+    }
+
+    // 基本的な組み合わせ
     for (int i = 0; i < 4; ++i)
     {
-        current_pwm_values[i] = smooth_interpolate(
+        target_pwm_out[i] = std::max({pwm_lx[i], pwm_ly[i], pwm_rx[i]});
+    }
+
+    // 強化されたジャイロ補正（常時適用）
+    if (rx_active || ry_active)
+    {
+        // ロール補正
+        float roll_rate = gyro_data.x;
+        int roll_correction = static_cast<int>(roll_rate * g_config.kp_roll * 2.0f);
+        roll_correction = std::max(-150, std::min(150, roll_correction));
+        
+        target_pwm_out[0] -= roll_correction;
+        target_pwm_out[1] += roll_correction;
+        target_pwm_out[2] += roll_correction;
+        target_pwm_out[3] -= roll_correction;
+
+        // ピッチ補正
+        float pitch_rate = gyro_data.y;
+        int pitch_correction = static_cast<int>(pitch_rate * g_config.kp_yaw * 1.5f);
+        pitch_correction = std::max(-150, std::min(150, pitch_correction));
+        
+        target_pwm_out[0] -= pitch_correction;
+        target_pwm_out[1] -= pitch_correction;
+        target_pwm_out[2] += pitch_correction;
+        target_pwm_out[3] += pitch_correction;
+    }
+
+    // 自動ヨー補正（ラダー操作時以外）
+    if (!lx_active && std::abs(gyro_data.z) > YAW_HOLD_THRESHOLD)
+    {
+        float yaw_rate = -gyro_data.z;
+        int yaw_correction = static_cast<int>(yaw_rate * g_config.yaw_gain * 2.0f);
+        yaw_correction = std::max(-300, std::min(300, yaw_correction));
+
+        if (yaw_correction > 0)
+        {
+            target_pwm_out[0] = std::min(g_config.pwm_boost_max, target_pwm_out[0] + yaw_correction);
+            target_pwm_out[3] = std::min(g_config.pwm_boost_max, target_pwm_out[3] + yaw_correction);
+        }
+        else
+        {
+            target_pwm_out[1] = std::min(g_config.pwm_boost_max, target_pwm_out[1] + std::abs(yaw_correction));
+            target_pwm_out[2] = std::min(g_config.pwm_boost_max, target_pwm_out[2] + std::abs(yaw_correction));
+        }
+    }
+}
+
+// 前進/後退スラスター制御ロジック（改良版）
+static int calculate_forward_reverse_pwm(int value)
+{
+    if (std::abs(value) <= g_config.joystick_deadzone)
+    {
+        return g_config.pwm_min;
+    }
+    
+    // より滑らかな応答カーブ
+    float normalized = static_cast<float>(value) / 32767.0f;
+    float curved = normalized * normalized * (normalized >= 0 ? 1.0f : -1.0f); // 2次カーブ
+    
+    int pulse_width = static_cast<int>(map_value(curved * 32767.0f, 
+                                               -32767, 32767, 
+                                               g_config.pwm_min, g_config.pwm_boost_max));
+    
+    return std::max(g_config.pwm_min, std::min(pulse_width, g_config.pwm_boost_max));
+}
+
+// メインの更新関数（改良版）
+void thruster_update(const GamepadData &gamepad_data, const AxisData &gyro_data)
+{
+    const float dt = 0.02f; // 50Hz制御周期
+    
+    // 目標PWM値の計算
+    int target_horizontal_pwm[4];
+    update_horizontal_thrusters(gamepad_data, gyro_data, target_horizontal_pwm);
+    
+    int target_forward_pwm = calculate_forward_reverse_pwm(gamepad_data.rightThumbY);
+
+    // 改良された平滑化処理
+    for (int i = 0; i < 4; ++i)
+    {
+        target_pwm_values[i] = static_cast<float>(target_horizontal_pwm[i]);
+        current_pwm_values[i] = advanced_smooth_interpolate(
             current_pwm_values[i], 
-            static_cast<float>(target_horizontal_pwm[i]),
-            g_config.smoothing_factor_horizontal
+            target_pwm_values[i], 
+            dt
         );
     }
     
-    // 前進/後退スラスター (Ch4, Ch5) の平滑化
+    // 前進/後退スラスター（より積極的な平滑化）
     float target_forward_val = static_cast<float>(target_forward_pwm);
-
-    if (target_forward_val > current_pwm_values[4]) { // 加速時のみ平滑化
-        current_pwm_values[4] = smooth_interpolate(
-            current_pwm_values[4], 
-            target_forward_val,
-            g_config.smoothing_factor_vertical
-        );
-    } else { // 減速時または維持時は即座に適用
-        current_pwm_values[4] = target_forward_val;
-    }
-
-    if (target_forward_val > current_pwm_values[5]) { // 加速時のみ平滑化
-        current_pwm_values[5] = smooth_interpolate(
-            current_pwm_values[5], 
-            target_forward_val,
-            g_config.smoothing_factor_vertical
-        );
-    } else { // 減速時または維持時は即座に適用
-        current_pwm_values[5] = target_forward_val;
-    }
-
-    // --- PWM信号をスラスターに送信 ---
-    printf("--- Thruster and LED PWM (Smoothed) ---\n");
+    target_pwm_values[4] = target_forward_val;
+    target_pwm_values[5] = target_forward_val;
     
-    // 水平スラスター
+    current_pwm_values[4] = advanced_smooth_interpolate(
+        current_pwm_values[4], 
+        target_forward_val, 
+        dt
+    );
+    current_pwm_values[5] = advanced_smooth_interpolate(
+        current_pwm_values[5], 
+        target_forward_val, 
+        dt
+    );
+
+    // PWM信号をスラスターに送信
+    printf("--- Thruster Control (Advanced Smooth) ---\n");
+    
     for (int i = 0; i < 4; ++i)
     {
         int smoothed_pwm = static_cast<int>(current_pwm_values[i]);
+        smoothed_pwm = std::max(g_config.pwm_min, std::min(smoothed_pwm, g_config.pwm_boost_max));
         set_thruster_pwm(i, smoothed_pwm);
         printf("Ch%d: Target=%d, Smoothed=%d\n", i, target_horizontal_pwm[i], smoothed_pwm);
     }
     
-    // 前進/後退スラスター
     int smoothed_forward_pwm = static_cast<int>(current_pwm_values[4]);
+    smoothed_forward_pwm = std::max(g_config.pwm_min, std::min(smoothed_forward_pwm, g_config.pwm_boost_max));
     set_thruster_pwm(4, smoothed_forward_pwm);
     set_thruster_pwm(5, smoothed_forward_pwm);
     printf("Ch4&5: Target=%d, Smoothed=%d\n", target_forward_pwm, smoothed_forward_pwm);
 
-    // --- LED制御 (平滑化なし) ---
+    // LED制御
     static int current_led_pwm = g_config.led_pwm_off;
     static bool y_button_previously_pressed = false;
-
+    
     bool y_button_currently_pressed = (gamepad_data.buttons & GamepadButton::Y);
-
+    
     if (y_button_currently_pressed && !y_button_previously_pressed)
     {
-        if (current_led_pwm == g_config.led_pwm_off)
-        {
-            current_led_pwm = g_config.led_pwm_on;
-        }
-        else
-        {
-            current_led_pwm = g_config.led_pwm_off;
-        }
+        current_led_pwm = (current_led_pwm == g_config.led_pwm_off) ? 
+                         g_config.led_pwm_on : g_config.led_pwm_off;
     }
     y_button_previously_pressed = y_button_currently_pressed;
-
+    
     set_thruster_pwm(g_config.led_pwm_channel, current_led_pwm);
-    printf("Ch%d: LED PWM = %d (%s)\n", g_config.led_pwm_channel, current_led_pwm, (current_led_pwm == g_config.led_pwm_on ? "ON" : "OFF"));
-
+    printf("Ch%d: LED PWM = %d (%s)\n", g_config.led_pwm_channel, current_led_pwm, 
+           (current_led_pwm == g_config.led_pwm_on ? "ON" : "OFF"));
+    
+    if (position_hold_mode)
+    {
+        printf("Position Hold Mode: ACTIVE\n");
+    }
+    
     printf("--------------------\n");
 }
 
-// すべてのスラスターを指定されたPWM値に設定し、LEDをオフにする関数
+// すべてのスラスターを指定されたPWM値に設定
 void thruster_set_all_pwm(int pwm_value)
 {
     for (int i = 0; i < NUM_THRUSTERS; ++i)
     {
         set_thruster_pwm(i, pwm_value);
-        current_pwm_values[i] = static_cast<float>(pwm_value); // 平滑化用の現在値も更新
+        current_pwm_values[i] = static_cast<float>(pwm_value);
+        target_pwm_values[i] = static_cast<float>(pwm_value);
+        previous_target_values[i] = static_cast<float>(pwm_value);
     }
     set_thruster_pwm(g_config.led_pwm_channel, g_config.led_pwm_off);
+    position_hold_mode = false;
 }
-
-// 平滑化係数を動的に変更する関数（オプション）
